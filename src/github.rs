@@ -3,13 +3,39 @@
 //! This module handles fetching repository information from the GitHub API
 //! with intelligent caching to minimize API calls and handle rate limits.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
 use tracing::{debug, info, instrument};
+
+/// GitHub API error types for better error handling.
+#[derive(Debug, Clone)]
+pub enum GitHubError {
+    /// Repository not found (404)
+    NotFound,
+    /// Rate limit exceeded (403)
+    RateLimited,
+    /// API error (other 4xx/5xx)
+    ApiError(u16),
+    /// Network or parsing error
+    NetworkError,
+}
+
+impl std::fmt::Display for GitHubError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitHubError::NotFound => write!(f, "Repository not found"),
+            GitHubError::RateLimited => write!(f, "GitHub API rate limit exceeded"),
+            GitHubError::ApiError(code) => write!(f, "GitHub API error: {}", code),
+            GitHubError::NetworkError => write!(f, "Network error while contacting GitHub API"),
+        }
+    }
+}
+
+impl std::error::Error for GitHubError {}
 
 /// Repository information retrieved from the GitHub API.
 #[derive(Deserialize, Clone, Debug)]
@@ -31,8 +57,8 @@ pub struct Repository {
 pub enum CacheEntry {
     /// Valid repository data
     Valid(Repository),
-    /// Invalid request with retry count
-    Invalid(u8),
+    /// Invalid request with error type and retry count
+    Invalid(GitHubError, u8),
 }
 
 /// Global cache for repository data with 30-minute TTL.
@@ -49,9 +75,12 @@ static CACHE: Lazy<Cache<String, CacheEntry>> = Lazy::new(|| {
 /// * `token` - Optional GitHub token for authentication
 ///
 /// # Returns
-/// Repository information or error if fetch fails
+/// Repository information or specific error type
 #[instrument(skip(token))]
-pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Result<Repository> {
+pub async fn get_repository_info(
+    repo_path: &str,
+    token: Option<String>,
+) -> Result<Repository, GitHubError> {
     let repo_path_string = repo_path.to_string();
 
     if let Some(entry) = CACHE.get(&repo_path_string).await {
@@ -60,12 +89,12 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
                 debug!("Cache hit for {}", repo_path);
                 return Ok(repo);
             }
-            CacheEntry::Invalid(count) if count >= 3 => {
+            CacheEntry::Invalid(error, count) if count >= 3 => {
                 info!(
                     "Cache hit for invalid repo {} (retries exhausted)",
                     repo_path
                 );
-                return Err(anyhow!("Repository not found or API rate limit exceeded."));
+                return Err(error);
             }
             _ => {}
         }
@@ -87,33 +116,70 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
     let client = reqwest::Client::builder()
         .user_agent("livecards-generator")
         .default_headers(headers)
-        .build()?;
+        .build()
+        .map_err(|_| GitHubError::NetworkError)?;
 
     match client.get(&repo_url).send().await {
-        Ok(response) if response.status().is_success() => {
-            let repo: Repository = response.json().await?;
-            debug!("Fetched repo info for {}", repo_path);
-            CACHE
-                .insert(repo_path_string, CacheEntry::Valid(repo.clone()))
-                .await;
-            Ok(repo)
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                let repo: Repository = response
+                    .json()
+                    .await
+                    .map_err(|_| GitHubError::NetworkError)?;
+                debug!("Fetched repo info for {}", repo_path);
+                CACHE
+                    .insert(repo_path_string, CacheEntry::Valid(repo.clone()))
+                    .await;
+                Ok(repo)
+            } else {
+                let error = match status.as_u16() {
+                    404 => GitHubError::NotFound,
+                    403 => GitHubError::RateLimited,
+                    code => GitHubError::ApiError(code),
+                };
+
+                let old_count = if let Some(CacheEntry::Invalid(_, count)) =
+                    CACHE.get(&repo_path_string).await
+                {
+                    count
+                } else {
+                    0
+                };
+                let new_count = old_count + 1;
+                info!(
+                    "Failed to fetch repo info for {}, attempt {}, status: {}",
+                    repo_path, new_count, status
+                );
+                CACHE
+                    .insert(
+                        repo_path_string,
+                        CacheEntry::Invalid(error.clone(), new_count),
+                    )
+                    .await;
+                Err(error)
+            }
         }
-        _ => {
+        Err(_) => {
+            let error = GitHubError::NetworkError;
             let old_count =
-                if let Some(CacheEntry::Invalid(count)) = CACHE.get(&repo_path_string).await {
+                if let Some(CacheEntry::Invalid(_, count)) = CACHE.get(&repo_path_string).await {
                     count
                 } else {
                     0
                 };
             let new_count = old_count + 1;
             info!(
-                "Failed to fetch repo info for {}, attempt {}",
+                "Network error for repo {}, attempt {}",
                 repo_path, new_count
             );
             CACHE
-                .insert(repo_path_string, CacheEntry::Invalid(new_count))
+                .insert(
+                    repo_path_string,
+                    CacheEntry::Invalid(error.clone(), new_count),
+                )
                 .await;
-            Err(anyhow!("Failed to fetch repository information."))
+            Err(error)
         }
     }
 }

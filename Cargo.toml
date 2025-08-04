@@ -41,3 +41,17 @@ phf_codegen = "0.12.1"
 serde = { version = "1.0.204", features = ["derive"] }
 saphyr = "0.0.6"
 reqwest = { version = "0.12.5", features = ["blocking"] }
+
+[profile.release]
+# Optimize for size
+opt-level = "z"
+# Enable link-time optimization for better size reduction
+lto = true
+# Strip debug symbols (but keep panic info for tracing)
+strip = "debuginfo"
+# Use panic = "abort" to reduce binary size (removes panic unwinding code)
+panic = "abort"
+# Enable codegen units optimization
+codegen-units = 1
+# Keep overflow checks for safety
+overflow-checks = true

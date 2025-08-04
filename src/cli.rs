@@ -55,7 +55,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     let output_path = match cli.output {
         Some(path) => path,
         None => {
-            let repo_name = repo_path.split('/').last().unwrap_or("card");
+            let repo_name = repo_path.split('/').next_back().unwrap_or("card");
             PathBuf::from(format!("{}.png", repo_name))
         }
     };

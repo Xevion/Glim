@@ -31,7 +31,10 @@ async fn main() -> Result<()> {
             .expect("setting default subscriber failed");
 
         if let Some(addr) = cli.server.as_ref() {
-            server::run(Some(addr.clone())).await;
+            if let Err(e) = server::run(Some(addr.clone())).await {
+                tracing::error!("Server error: {}", e);
+                std::process::exit(1);
+            }
         } else if cli.repository.is_some() {
             cli::run(cli).await?;
         } else {

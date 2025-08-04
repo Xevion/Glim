@@ -16,7 +16,6 @@ use std::net::SocketAddr;
 use tracing::{info, instrument};
 
 use crate::{
-    errors::GitHubError,
     github, image,
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };

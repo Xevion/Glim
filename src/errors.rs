@@ -40,26 +40,6 @@ pub enum LivecardsError {
     /// SVG processing errors
     #[error("SVG error: {0}")]
     Svg(#[from] usvg::Error),
-
-    /// Image rasterization errors
-    #[error("Rasterization error: {0}")]
-    Rasterization(String),
-
-    /// Font loading errors
-    #[error("Font error: {0}")]
-    Font(String),
-
-    /// Configuration errors
-    #[error("Configuration error: {0}")]
-    Config(String),
-
-    /// Rate limiting errors
-    #[error("Rate limit exceeded: {0}")]
-    RateLimit(String),
-
-    /// Validation errors
-    #[error("Validation error: {0}")]
-    Validation(String),
 }
 
 /// GitHub API specific errors
@@ -104,14 +84,6 @@ pub enum ImageError {
     /// Failed to write PNG
     #[error("Failed to write PNG: {0}")]
     PngWrite(String),
-
-    /// Invalid image dimensions
-    #[error("Invalid image dimensions: {0}x{1}")]
-    InvalidDimensions(u32, u32),
-
-    /// Font loading error
-    #[error("Font loading error: {0}")]
-    FontError(String),
 }
 
 /// Server/HTTP specific errors
@@ -128,34 +100,12 @@ pub enum ServerError {
     /// Invalid address format
     #[error("Invalid address format: {0}")]
     InvalidAddress(String),
-
-    /// Server shutdown error
-    #[error("Server shutdown error: {0}")]
-    ShutdownError(String),
 }
 
 /// CLI/argument parsing specific errors
 #[derive(Error, Debug)]
 pub enum CliError {
-    /// Missing required argument
-    #[error("Missing required argument: {0}")]
-    MissingArgument(String),
-
-    /// Invalid argument value
-    #[error("Invalid argument value: {0}")]
-    InvalidArgument(String),
-
-    /// Missing output file
-    #[error("Missing output file")]
-    MissingOutput,
-
-    /// Invalid output path
-    #[error("Invalid output path: {0}")]
-    InvalidOutputPath(String),
-
-    /// Invalid log level
-    #[error("Invalid log level: {0}")]
-    InvalidLogLevel(String),
+    // Currently no CLI-specific errors are used
 }
 
 /// Type alias for Result using the unified error type

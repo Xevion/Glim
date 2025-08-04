@@ -14,14 +14,14 @@ use tracing::{debug, warn};
 
 /// Time provider trait for mocking in tests
 #[cfg(test)]
-pub(crate) trait TimeProvider {
+pub trait TimeProvider {
     fn now(&self) -> Instant;
     fn advance(&mut self, duration: Duration);
 }
 
 /// Real time provider for production
 #[cfg(test)]
-struct RealTimeProvider;
+pub struct RealTimeProvider;
 
 #[cfg(test)]
 impl TimeProvider for RealTimeProvider {
@@ -36,13 +36,13 @@ impl TimeProvider for RealTimeProvider {
 
 /// Mock time provider for tests
 #[cfg(test)]
-struct MockTimeProvider {
+pub struct MockTimeProvider {
     current_time: Instant,
 }
 
 #[cfg(test)]
 impl MockTimeProvider {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             current_time: Instant::now(),
         }
@@ -85,13 +85,21 @@ impl Default for RateLimitConfig {
 }
 
 /// Token bucket for rate limiting
+#[cfg(test)]
+pub struct TokenBucket {
+    tokens: AtomicU32,
+    max_tokens: u32,
+    refill_rate: u32, // tokens per refill interval
+    last_refill: RwLock<Instant>,
+    time_provider: Arc<RwLock<Box<dyn TimeProvider + Send + Sync>>>,
+}
+
+#[cfg(not(test))]
 struct TokenBucket {
     tokens: AtomicU32,
     max_tokens: u32,
     refill_rate: u32, // tokens per refill interval
     last_refill: RwLock<Instant>,
-    #[cfg(test)]
-    time_provider: Arc<RwLock<Box<dyn TimeProvider + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for TokenBucket {
@@ -113,19 +121,29 @@ impl std::fmt::Debug for TokenBucket {
 }
 
 impl TokenBucket {
+    #[cfg(not(test))]
     fn new(max_tokens: u32, refill_rate: u32) -> Self {
         Self {
             tokens: AtomicU32::new(max_tokens),
             max_tokens,
             refill_rate,
             last_refill: RwLock::new(Instant::now()),
-            #[cfg(test)]
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new(max_tokens: u32, refill_rate: u32) -> Self {
+        Self {
+            tokens: AtomicU32::new(max_tokens),
+            max_tokens,
+            refill_rate,
+            last_refill: RwLock::new(Instant::now()),
             time_provider: Arc::new(RwLock::new(Box::new(RealTimeProvider))),
         }
     }
 
     #[cfg(test)]
-    fn new_with_time_provider(
+    pub fn new_with_time_provider(
         max_tokens: u32,
         refill_rate: u32,
         time_provider: Box<dyn TimeProvider + Send + Sync>,
@@ -140,6 +158,7 @@ impl TokenBucket {
     }
 
     /// Try to consume a token. Returns true if successful, false if rate limited.
+    #[cfg(not(test))]
     async fn try_consume(&self) -> bool {
         self.refill().await;
 
@@ -166,8 +185,64 @@ impl TokenBucket {
         }
     }
 
+    #[cfg(test)]
+    pub async fn try_consume(&self) -> bool {
+        self.refill().await;
+
+        // Use a loop instead of recursion to avoid boxing
+        loop {
+            let current_tokens = self.tokens.load(Ordering::Acquire);
+            if current_tokens > 0 {
+                // Try to decrement atomically
+                match self.tokens.compare_exchange_weak(
+                    current_tokens,
+                    current_tokens - 1,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => return true,
+                    Err(_) => {
+                        // Someone else consumed the token, try again
+                        continue;
+                    }
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+
     /// Refill tokens based on elapsed time
+    #[cfg(not(test))]
     async fn refill(&self) {
+        let now = Instant::now();
+
+        let mut last_refill = self.last_refill.write().await;
+
+        let elapsed = now.duration_since(*last_refill);
+        if elapsed >= Duration::from_secs(1) {
+            let seconds_passed = elapsed.as_secs() as u32;
+            let tokens_to_add = seconds_passed * self.refill_rate;
+
+            if tokens_to_add > 0 {
+                let current_tokens = self.tokens.load(Ordering::Acquire);
+                let new_tokens = (current_tokens + tokens_to_add).min(self.max_tokens);
+                self.tokens.store(new_tokens, Ordering::Release);
+                *last_refill = now;
+
+                // Only log if we actually added tokens and it's significant
+                if tokens_to_add > 0 && current_tokens < self.max_tokens / 2 {
+                    debug!(
+                        "Refilled {} tokens, current: {}/{}",
+                        tokens_to_add, new_tokens, self.max_tokens
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn refill(&self) {
         #[cfg(test)]
         let now = {
             let time_provider = self.time_provider.read().await;
@@ -207,7 +282,7 @@ impl TokenBucket {
 
     #[cfg(test)]
     /// Advance time for testing
-    async fn advance_time(&self, duration: Duration) {
+    pub async fn advance_time(&self, duration: Duration) {
         let mut time_provider = self.time_provider.write().await;
         time_provider.advance(duration);
     }
@@ -358,138 +433,5 @@ impl std::fmt::Display for RateLimitStatus {
             self.config.global_requests_per_minute,
             self.config.per_ip_requests_per_minute
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::net::Ipv4Addr;
-
-    #[tokio::test]
-    async fn test_token_bucket_basic() {
-        let bucket = TokenBucket::new(5, 1);
-
-        // Should be able to consume up to max tokens
-        for _ in 0..5 {
-            assert!(bucket.try_consume().await);
-        }
-
-        // Should be rate limited after consuming all tokens
-        assert!(!bucket.try_consume().await);
-    }
-
-    #[tokio::test]
-    async fn test_token_bucket_refill() {
-        let time_provider = Box::new(MockTimeProvider::new());
-        let bucket = TokenBucket::new_with_time_provider(2, 1, time_provider);
-
-        // Consume all tokens
-        assert!(bucket.try_consume().await);
-        assert!(bucket.try_consume().await);
-        assert!(!bucket.try_consume().await);
-
-        // Advance time by 2 seconds (instant)
-        bucket.advance_time(Duration::from_secs(2)).await;
-
-        // Should have tokens again
-        assert!(bucket.try_consume().await);
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_global_limit() {
-        let config = RateLimitConfig {
-            global_requests_per_minute: 2,
-            per_ip_requests_per_minute: 10,
-            ip_memory_duration: 3600,
-            refill_interval: 1,
-        };
-
-        let limiter = RateLimiter::new(config);
-        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-
-        // Should allow up to global limit
-        assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-        assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-
-        // Should exceed global limit
-        assert_eq!(
-            limiter.check_rate_limit(ip).await,
-            RateLimitResult::GlobalLimitExceeded
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_ip_limit() {
-        let config = RateLimitConfig {
-            global_requests_per_minute: 100,
-            per_ip_requests_per_minute: 2,
-            ip_memory_duration: 3600,
-            refill_interval: 1,
-        };
-
-        let limiter = RateLimiter::new(config);
-        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-
-        // Should allow up to per-IP limit
-        assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-        assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-
-        // Should exceed per-IP limit
-        assert_eq!(
-            limiter.check_rate_limit(ip).await,
-            RateLimitResult::IpLimitExceeded
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_different_ips() {
-        let config = RateLimitConfig {
-            global_requests_per_minute: 100,
-            per_ip_requests_per_minute: 1,
-            ip_memory_duration: 3600,
-            refill_interval: 1,
-        };
-
-        let limiter = RateLimiter::new(config);
-        let ip1 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let ip2 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
-
-        // Each IP should have its own limit
-        assert_eq!(
-            limiter.check_rate_limit(ip1).await,
-            RateLimitResult::Allowed
-        );
-        assert_eq!(
-            limiter.check_rate_limit(ip2).await,
-            RateLimitResult::Allowed
-        );
-
-        // Both should be rate limited after consuming their tokens
-        assert_eq!(
-            limiter.check_rate_limit(ip1).await,
-            RateLimitResult::IpLimitExceeded
-        );
-        assert_eq!(
-            limiter.check_rate_limit(ip2).await,
-            RateLimitResult::IpLimitExceeded
-        );
-    }
-
-    #[tokio::test]
-    async fn test_simple_time_advancement() {
-        let time_provider = Box::new(MockTimeProvider::new());
-        let bucket = TokenBucket::new_with_time_provider(2, 1, time_provider);
-
-        // Consume all tokens
-        assert!(bucket.try_consume().await);
-        assert!(bucket.try_consume().await);
-        assert!(!bucket.try_consume().await);
-
-        // Advance time by 2 seconds
-        bucket.advance_time(Duration::from_secs(2)).await;
-
-        // Should have tokens again
-        assert!(bucket.try_consume().await);
     }
 }

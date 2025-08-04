@@ -3,15 +3,15 @@
 //! A command-line tool and HTTP server for creating dynamic repository cards
 //! that display GitHub repository information in a clean, visual format.
 
-mod colors;
-mod errors;
-mod github;
-mod image;
-mod ratelimit;
-mod server;
+pub mod colors;
+pub mod errors;
+pub mod github;
+pub mod image;
+pub mod ratelimit;
+pub mod server;
 
 #[cfg(feature = "cli")]
-mod cli;
+pub mod cli;
 
 use crate::errors::Result;
 use tracing_subscriber::FmtSubscriber;

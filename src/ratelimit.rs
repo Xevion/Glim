@@ -50,6 +50,13 @@ impl MockTimeProvider {
 }
 
 #[cfg(test)]
+impl Default for MockTimeProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
 impl TimeProvider for MockTimeProvider {
     fn now(&self) -> Instant {
         self.current_time

@@ -93,6 +93,12 @@ impl Rasterizer {
     }
 }
 
+impl Default for Rasterizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Generates a PNG repository card image.
 ///
 /// # Arguments

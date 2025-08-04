@@ -1,10 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use serde::Deserialize;
-use std::env;
 use std::path::PathBuf;
 
-use crate::image;
+use crate::{github, image};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -32,48 +30,14 @@ pub struct Cli {
     pub server: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
-pub struct Repository {
-    pub name: String,
-    pub description: Option<String>,
-    pub language: Option<String>,
-    pub stargazers_count: u32,
-    pub forks_count: u32,
-}
-
 pub async fn run(cli: Cli) -> Result<()> {
-    let repo_url = format!(
-        "https://api.github.com/repos/{}",
-        cli.repository.as_ref().unwrap()
-    );
-
-    let token = cli.token.or_else(|| env::var("GITHUB_TOKEN").ok());
-
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(token) = token {
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
-    }
-
-    let client = reqwest::Client::builder()
-        .user_agent("livecards-generator")
-        .default_headers(headers)
-        .build()?;
-
-    let repo: Repository = client.get(&repo_url).send().await?.json().await?;
+    let repo_path = cli.repository.as_ref().unwrap();
+    let repo = github::get_repository_info(repo_path, cli.token).await?;
 
     let output_path = match cli.output {
         Some(path) => path,
         None => {
-            let repo_name = cli
-                .repository
-                .as_ref()
-                .unwrap()
-                .split('/')
-                .last()
-                .unwrap_or("card");
+            let repo_name = repo_path.split('/').last().unwrap_or("card");
             PathBuf::from(format!("{}.png", repo_name))
         }
     };

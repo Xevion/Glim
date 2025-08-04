@@ -1,10 +1,11 @@
-use anyhow::Result;
-use clap::Parser;
-
 mod cli;
 mod colors;
+mod github;
 mod image;
 mod server;
+
+use anyhow::Result;
+use clap::Parser;
 
 #[tokio::main]
 async fn main() -> Result<()> {

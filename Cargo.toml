@@ -14,8 +14,10 @@ serde = { version = "1.0.204", features = ["derive"] }
 tokio = { version = "1.39.2", features = ["full"] }
 serde_yaml = "0.9.34"
 phf = { version = "0.11.2", features = ["macros"] }
-axum = "0.7.5"
+axum = { version = "0.7.5", features = ["macros"] }
 tower-http = { version = "0.5.2", features = ["fs"] }
+lazy_static = "1.5.0"
+
 
 [build-dependencies]
 phf_codegen = "0.11.2"

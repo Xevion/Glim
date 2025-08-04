@@ -1,0 +1,7 @@
+target/
+.git/
+.github/
+*.png
+README.md
+LICENSE
+.gitignore

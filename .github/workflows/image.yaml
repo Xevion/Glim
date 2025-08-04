@@ -34,7 +34,7 @@ jobs:
               fi
               break
             fi
-            
+
             if [ $i -eq 30 ]; then
               echo "::error::Server failed to start within 30 seconds"
               exit 1

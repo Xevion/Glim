@@ -2,6 +2,7 @@ use crate::colors;
 use anyhow::Result;
 use resvg::{tiny_skia, usvg};
 use std::io::Write;
+use tracing::instrument;
 
 pub struct Rasterizer {
     font_db: usvg::fontdb::Database,
@@ -37,6 +38,7 @@ fn wrap_text(text: &str, width: usize) -> String {
 }
 
 impl Rasterizer {
+    #[instrument]
     pub fn new() -> Self {
         let mut fontdb = usvg::fontdb::Database::new();
         fontdb.load_system_fonts();
@@ -44,6 +46,7 @@ impl Rasterizer {
         Self { font_db: fontdb }
     }
 
+    #[instrument(skip(self))]
     pub fn render(&self, svg_data: &str) -> Result<tiny_skia::Pixmap, anyhow::Error> {
         let options = usvg::Options {
             fontdb: std::sync::Arc::new(self.font_db.clone()),
@@ -66,6 +69,7 @@ impl Rasterizer {
     }
 }
 
+#[instrument(skip(writer))]
 pub fn generate_image<W: Write>(
     name: &str,
     description: &str,

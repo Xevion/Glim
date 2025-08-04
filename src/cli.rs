@@ -3,6 +3,7 @@ use clap::Parser;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
+use tracing::Level;
 
 use crate::{github, image};
 
@@ -30,6 +31,9 @@ pub struct Cli {
         require_equals = true
     )]
     pub server: Option<String>,
+    /// Set the logging level.
+    #[arg(long, short = 'L', value_name = "LEVEL", default_value_t = if cfg!(debug_assertions) { Level::DEBUG } else { Level::INFO })]
+    pub log_level: Level,
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
@@ -56,7 +60,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         writer,
     )?;
 
-    println!("Successfully generated {}.", output_path.to_string_lossy());
+    tracing::info!("Successfully generated {}.", output_path.to_string_lossy());
 
     Ok(())
 }

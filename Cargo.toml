@@ -9,12 +9,17 @@ repository = "https://github.com/Xevion/livecards"
 keywords = ["github", "cards", "cli", "svg", "png"]
 categories = ["command-line-utilities", "web-programming"]
 
+[features]
+default = ["cli"]
+cli = ["clap"]
+server = []
+
 [dependencies]
 anyhow = "1.0.98"
 resvg = "0.45.1"
 tiny-skia = "0.11.4"
 usvg = "0.45.1"
-clap = { version = "4.5.11", features = ["derive"] }
+clap = { version = "4.5.11", features = ["derive"], optional = true }
 reqwest = { version = "0.12.5", features = ["json"] }
 serde = { version = "1.0.204", features = ["derive"] }
 tokio = { version = "1.39.2", features = ["full"] }

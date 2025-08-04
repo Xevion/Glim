@@ -2,7 +2,7 @@
 //!
 //! Handles CLI argument parsing and execution logic for generating repository cards.
 
-use crate::errors::{CliError, Result};
+use crate::errors::Result;
 use clap::Parser;
 use std::fs::File;
 use std::io::BufWriter;

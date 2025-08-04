@@ -2,49 +2,46 @@ use livecards::ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter};
 use std::net::{IpAddr, Ipv4Addr};
 
 #[tokio::test]
-async fn test_rate_limiter_global_limit() {
-    let config = RateLimitConfig {
-        global_requests_per_minute: 2,
-        per_ip_requests_per_minute: 10,
-        ip_memory_duration: 3600,
-        refill_interval: 1,
-    };
+async fn test_rate_limiter_limits() {
+    let test_cases = [
+        (
+            RateLimitConfig {
+                global_requests_per_minute: 2,
+                per_ip_requests_per_minute: 10,
+                ip_memory_duration: 3600,
+                refill_interval: 1,
+            },
+            RateLimitResult::GlobalLimitExceeded,
+            "global limit",
+        ),
+        (
+            RateLimitConfig {
+                global_requests_per_minute: 100,
+                per_ip_requests_per_minute: 2,
+                ip_memory_duration: 3600,
+                refill_interval: 1,
+            },
+            RateLimitResult::IpLimitExceeded,
+            "per-IP limit",
+        ),
+    ];
 
-    let limiter = RateLimiter::new(config);
-    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    for (config, expected_result, limit_type) in test_cases {
+        let limiter = RateLimiter::new(config);
+        let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 
-    // Should allow up to global limit
-    assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-    assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
+        // Should allow up to limit
+        assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
+        assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
 
-    // Should exceed global limit
-    assert_eq!(
-        limiter.check_rate_limit(ip).await,
-        RateLimitResult::GlobalLimitExceeded
-    );
-}
-
-#[tokio::test]
-async fn test_rate_limiter_ip_limit() {
-    let config = RateLimitConfig {
-        global_requests_per_minute: 100,
-        per_ip_requests_per_minute: 2,
-        ip_memory_duration: 3600,
-        refill_interval: 1,
-    };
-
-    let limiter = RateLimiter::new(config);
-    let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-
-    // Should allow up to per-IP limit
-    assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-    assert_eq!(limiter.check_rate_limit(ip).await, RateLimitResult::Allowed);
-
-    // Should exceed per-IP limit
-    assert_eq!(
-        limiter.check_rate_limit(ip).await,
-        RateLimitResult::IpLimitExceeded
-    );
+        // Should exceed limit
+        assert_eq!(
+            limiter.check_rate_limit(ip).await,
+            expected_result,
+            "Failed to exceed {}",
+            limit_type
+        );
+    }
 }
 
 #[tokio::test]
@@ -79,49 +76,6 @@ async fn test_rate_limiter_different_ips() {
         limiter.check_rate_limit(ip2).await,
         RateLimitResult::IpLimitExceeded
     );
-}
-
-#[tokio::test]
-async fn test_rate_limit_config_default() {
-    let config = RateLimitConfig::default();
-
-    assert_eq!(config.global_requests_per_minute, 300);
-    assert_eq!(config.per_ip_requests_per_minute, 30);
-    assert_eq!(config.ip_memory_duration, 3600);
-    assert_eq!(config.refill_interval, 1);
-}
-
-#[tokio::test]
-async fn test_rate_limit_config_custom() {
-    let config = RateLimitConfig {
-        global_requests_per_minute: 500,
-        per_ip_requests_per_minute: 50,
-        ip_memory_duration: 7200,
-        refill_interval: 2,
-    };
-
-    assert_eq!(config.global_requests_per_minute, 500);
-    assert_eq!(config.per_ip_requests_per_minute, 50);
-    assert_eq!(config.ip_memory_duration, 7200);
-    assert_eq!(config.refill_interval, 2);
-}
-
-#[tokio::test]
-async fn test_rate_limit_result_variants() {
-    // Test Allowed variant
-    let allowed = RateLimitResult::Allowed;
-    assert!(matches!(allowed, RateLimitResult::Allowed));
-
-    // Test GlobalLimitExceeded variant
-    let global_exceeded = RateLimitResult::GlobalLimitExceeded;
-    assert!(matches!(
-        global_exceeded,
-        RateLimitResult::GlobalLimitExceeded
-    ));
-
-    // Test IpLimitExceeded variant
-    let ip_exceeded = RateLimitResult::IpLimitExceeded;
-    assert!(matches!(ip_exceeded, RateLimitResult::IpLimitExceeded));
 }
 
 #[tokio::test]

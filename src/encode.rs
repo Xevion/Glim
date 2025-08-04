@@ -14,8 +14,8 @@ fn rasterize_svg_to_rgba(svg_data: &str) -> Result<RgbaImage> {
     let rasterizer = crate::image::Rasterizer::new();
     let pixmap = rasterizer.render(svg_data)?;
 
-    let width = pixmap.width() as u32;
-    let height = pixmap.height() as u32;
+    let width = pixmap.width();
+    let height = pixmap.height();
     let mut img = RgbaImage::new(width, height);
 
     // Copy pixel data from pixmap to image buffer

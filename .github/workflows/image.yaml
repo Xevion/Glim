@@ -70,8 +70,29 @@ jobs:
       - name: Test image size
         run: |
           # Check that the image is reasonably sized
-          IMAGE_SIZE=$(docker images livecards-test --format "{{.Size}}" | sed 's/[^0-9]//g')
-          echo "Image size: ${IMAGE_SIZE}MB"
+          IMAGE_SIZE_RAW=$(docker images livecards-test --format "{{.Size}}")
+          echo "Raw image size: ${IMAGE_SIZE_RAW}"
+
+          # Convert size to MB (handle both decimal and integer sizes)
+          if [[ "$IMAGE_SIZE_RAW" =~ ([0-9]+)\.([0-9]+)MB ]]; then
+            # Decimal size like "90.5MB" - convert to integer by rounding
+            WHOLE_PART="${BASH_REMATCH[1]}"
+            DECIMAL_PART="${BASH_REMATCH[2]}"
+            # Round up if decimal part >= 5, otherwise round down
+            if [ "${DECIMAL_PART}" -ge 5 ]; then
+              IMAGE_SIZE=$((WHOLE_PART + 1))
+            else
+              IMAGE_SIZE="${WHOLE_PART}"
+            fi
+          elif [[ "$IMAGE_SIZE_RAW" =~ ([0-9]+)MB ]]; then
+            # Integer size like "90MB"
+            IMAGE_SIZE="${BASH_REMATCH[1]}"
+          else
+            echo "::error::Could not parse image size: ${IMAGE_SIZE_RAW}"
+            exit 1
+          fi
+
+          echo "Parsed image size: ${IMAGE_SIZE}MB"
 
           # Fail if image is too large (>100MB)
           if [ "$IMAGE_SIZE" -gt 100 ]; then

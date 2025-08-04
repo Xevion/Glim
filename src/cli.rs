@@ -15,6 +15,10 @@ pub struct Cli {
     /// The output path for the generated card.
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+
+    /// GitHub token to use for API requests.
+    #[arg(short, long)]
+    pub token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -30,8 +34,10 @@ pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     let repo_url = format!("https://api.github.com/repos/{}", cli.repository);
 
+    let token = cli.token.or_else(|| env::var("GITHUB_TOKEN").ok());
+
     let mut headers = reqwest::header::HeaderMap::new();
-    if let Ok(token) = env::var("GITHUB_TOKEN") {
+    if let Some(token) = token {
         headers.insert(
             "Authorization",
             format!("Bearer {}", token).parse().unwrap(),

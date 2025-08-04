@@ -16,6 +16,7 @@ Arguments:
 
 Options:
   -o, --output <OUTPUT>  The output path for the generated card
+  -t, --token <TOKEN>    GitHub token to use for API requests
   -h, --help             Print help
   -V, --version          Print version
 ```

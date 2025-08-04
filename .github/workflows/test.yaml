@@ -63,7 +63,7 @@ jobs:
         run: cross build --release --target=${{ matrix.target.target }} --features ${{ matrix.feature }},vendored-openssl
 
       - name: Install nextest
-        if: ${{ matrix.target.test != false }}
+        if: ${{ matrix.target.test == true && matrix.target.cross == false }}
         uses: taiki-e/install-action@nextest
 
       - name: Run tests (native)
@@ -72,4 +72,4 @@ jobs:
 
       - name: Run tests (cross-compiled)
         if: ${{ matrix.target.test == true && matrix.target.cross == true }}
-        run: cross test --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}
+        run: cross test --verbose --features ${{ matrix.feature }},vendored-openssl --target ${{ matrix.target.target }}

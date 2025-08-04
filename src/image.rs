@@ -1,0 +1,96 @@
+use crate::colors;
+use anyhow::Result;
+use resvg::{tiny_skia, usvg};
+
+pub struct Rasterizer {
+    font_db: usvg::fontdb::Database,
+}
+
+fn wrap_text(text: &str, width: usize) -> String {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        if current_line.len() + word.len() + 1 > width {
+            lines.push(current_line);
+            current_line = String::new();
+        }
+        if !current_line.is_empty() {
+            current_line.push(' ');
+        }
+        current_line.push_str(word);
+    }
+    lines.push(current_line);
+
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            format!(
+                r#"<tspan x="16" dy="{}em">{}</tspan>"#,
+                (i as f32 * 1.9) - 0.5,
+                line
+            )
+        })
+        .collect::<String>()
+}
+
+impl Rasterizer {
+    pub fn new() -> Self {
+        let mut fontdb = usvg::fontdb::Database::new();
+        fontdb.load_system_fonts();
+        fontdb.load_fonts_dir("src/fonts");
+        Self { font_db: fontdb }
+    }
+
+    pub fn render(&self, svg_data: &str) -> Result<tiny_skia::Pixmap, anyhow::Error> {
+        let options = usvg::Options {
+            fontdb: std::sync::Arc::new(self.font_db.clone()),
+            ..Default::default()
+        };
+
+        let tree = usvg::Tree::from_str(svg_data, &options)?;
+
+        let pixmap_size = tree.size().to_int_size();
+        let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
+            .ok_or_else(|| anyhow::anyhow!("Failed to create pixmap"))?;
+
+        resvg::render(
+            &tree,
+            tiny_skia::Transform::identity(),
+            &mut pixmap.as_mut(),
+        );
+
+        Ok(pixmap)
+    }
+}
+
+pub fn generate_image(
+    name: &str,
+    description: &str,
+    language: &str,
+    stars: &str,
+    forks: &str,
+) -> Result<()> {
+    let svg_template = std::fs::read_to_string("card.svg")?;
+    let wrapped_description = wrap_text(description, 65);
+    let language_color = colors::get_color(language).unwrap_or_else(|| "#f1e05a".to_string());
+
+    let svg_filled = svg_template
+        .replace("{{name}}", name)
+        .replace("{{description}}", &wrapped_description)
+        .replace("{{language}}", language)
+        .replace("{{language_color}}", &language_color)
+        .replace("{{stars}}", stars)
+        .replace("{{forks}}", forks);
+
+    let rasterizer = Rasterizer::new();
+
+    let pixmap = rasterizer.render(&svg_filled)?;
+
+    pixmap.save_png("card.png")?;
+
+    println!("Successfully generated card.png.");
+
+    Ok(())
+}

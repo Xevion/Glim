@@ -2,6 +2,9 @@ name: Image
 
 on: [push, pull_request]
 
+env:
+  RUST_VERSION: "1.86.0"
+
 jobs:
   docker:
     name: Docker Image
@@ -12,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t livecards-test .
+        run: docker build --build-arg RUST_VERSION=${{ env.RUST_VERSION }} -t livecards-test .
 
       - name: Test image functionality
         run: |

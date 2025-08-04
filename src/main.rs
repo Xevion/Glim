@@ -5,12 +5,13 @@
 
 mod cli;
 mod colors;
+mod errors;
 mod github;
 mod image;
 mod ratelimit;
 mod server;
 
-use anyhow::Result;
+use crate::errors::Result;
 use clap::Parser;
 use tracing_subscriber::FmtSubscriber;
 

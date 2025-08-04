@@ -3,39 +3,13 @@
 //! This module handles fetching repository information from the GitHub API
 //! with intelligent caching to minimize API calls and handle rate limits.
 
-use anyhow::Result;
+use crate::errors::{GitHubError, Result};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::env;
 use std::time::Duration;
 use tracing::{debug, info, instrument};
-
-/// GitHub API error types for better error handling.
-#[derive(Debug, Clone)]
-pub enum GitHubError {
-    /// Repository not found (404)
-    NotFound,
-    /// Rate limit exceeded (403)
-    RateLimited,
-    /// API error (other 4xx/5xx)
-    ApiError(u16),
-    /// Network or parsing error
-    NetworkError,
-}
-
-impl std::fmt::Display for GitHubError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GitHubError::NotFound => write!(f, "Repository not found"),
-            GitHubError::RateLimited => write!(f, "GitHub API rate limit exceeded"),
-            GitHubError::ApiError(code) => write!(f, "GitHub API error: {}", code),
-            GitHubError::NetworkError => write!(f, "Network error while contacting GitHub API"),
-        }
-    }
-}
-
-impl std::error::Error for GitHubError {}
 
 /// Repository information retrieved from the GitHub API.
 #[derive(Deserialize, Clone, Debug)]
@@ -58,7 +32,7 @@ pub enum CacheEntry {
     /// Valid repository data
     Valid(Repository),
     /// Invalid request with error type and retry count
-    Invalid(GitHubError, u8),
+    Invalid(crate::errors::GitHubError, u8),
 }
 
 /// Global cache for repository data with 30-minute TTL.
@@ -77,10 +51,7 @@ static CACHE: Lazy<Cache<String, CacheEntry>> = Lazy::new(|| {
 /// # Returns
 /// Repository information or specific error type
 #[instrument(skip(token))]
-pub async fn get_repository_info(
-    repo_path: &str,
-    token: Option<String>,
-) -> Result<Repository, GitHubError> {
+pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Result<Repository> {
     let repo_path_string = repo_path.to_string();
 
     if let Some(entry) = CACHE.get(&repo_path_string).await {
@@ -94,7 +65,7 @@ pub async fn get_repository_info(
                     "Cache hit for invalid repo {} (retries exhausted)",
                     repo_path
                 );
-                return Err(error);
+                return Err(crate::errors::LivecardsError::GitHub(error));
             }
             _ => {}
         }
@@ -117,16 +88,15 @@ pub async fn get_repository_info(
         .user_agent("livecards-generator")
         .default_headers(headers)
         .build()
-        .map_err(|_| GitHubError::NetworkError)?;
+        .map_err(|_| crate::errors::LivecardsError::GitHub(GitHubError::NetworkError))?;
 
     match client.get(&repo_url).send().await {
         Ok(response) => {
             let status = response.status();
             if status.is_success() {
-                let repo: Repository = response
-                    .json()
-                    .await
-                    .map_err(|_| GitHubError::NetworkError)?;
+                let repo: Repository = response.json().await.map_err(|_| {
+                    crate::errors::LivecardsError::GitHub(GitHubError::NetworkError)
+                })?;
                 debug!("Fetched repo info for {}", repo_path);
                 CACHE
                     .insert(repo_path_string, CacheEntry::Valid(repo.clone()))
@@ -157,7 +127,7 @@ pub async fn get_repository_info(
                         CacheEntry::Invalid(error.clone(), new_count),
                     )
                     .await;
-                Err(error)
+                Err(crate::errors::LivecardsError::GitHub(error))
             }
         }
         Err(_) => {
@@ -179,7 +149,7 @@ pub async fn get_repository_info(
                     CacheEntry::Invalid(error.clone(), new_count),
                 )
                 .await;
-            Err(error)
+            Err(crate::errors::LivecardsError::GitHub(error))
         }
     }
 }

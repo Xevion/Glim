@@ -15,6 +15,7 @@ use std::net::SocketAddr;
 use tracing::{info, instrument};
 
 use crate::{
+    errors::GitHubError,
     github, image,
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
@@ -138,12 +139,8 @@ async fn handler(
         .map_err(|e| {
             tracing::error!("Failed to get repository info: {}", e);
             match e {
-                github::GitHubError::NotFound => StatusCode::NOT_FOUND,
-                github::GitHubError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
-                github::GitHubError::ApiError(403) => StatusCode::TOO_MANY_REQUESTS,
-                github::GitHubError::ApiError(401) => StatusCode::UNAUTHORIZED,
-                github::GitHubError::ApiError(_) => StatusCode::BAD_GATEWAY,
-                github::GitHubError::NetworkError => StatusCode::BAD_GATEWAY,
+                crate::errors::LivecardsError::GitHub(github_error) => github_error.into(),
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
             }
         })?;
 

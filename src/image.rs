@@ -1,15 +1,16 @@
 //! Image generation for repository cards.
 //!
-//! This module handles SVG template processing and PNG rasterization
+//! This module handles SVG template processing and multi-format encoding
 //! to create beautiful repository cards with dynamic content.
 
-use crate::colors;
+use crate::encode::{self, ImageFormat};
 use crate::errors::{ImageError, LivecardsError, Result};
 use resvg::{tiny_skia, usvg};
 use std::io::Write;
 use tracing::instrument;
 
 /// SVG to PNG rasterizer with font support.
+#[derive(Debug)]
 pub struct Rasterizer {
     font_db: usvg::fontdb::Database,
 }
@@ -22,7 +23,7 @@ pub struct Rasterizer {
 ///
 /// # Returns
 /// SVG tspan elements with wrapped text
-fn wrap_text(text: &str, width: usize) -> String {
+pub fn wrap_text(text: &str, width: usize) -> String {
     let mut lines = Vec::new();
     let mut current_line = String::new();
 
@@ -99,7 +100,53 @@ impl Default for Rasterizer {
     }
 }
 
-/// Generates a PNG repository card image.
+/// Parses a file extension to determine the image format.
+///
+/// # Arguments
+/// * `extension` - The file extension (e.g., "png", "webp", "jpg")
+///
+/// # Returns
+/// Some(ImageFormat) if the extension is supported, None otherwise
+pub fn parse_extension(extension: &str) -> Option<ImageFormat> {
+    match extension.to_lowercase().as_str() {
+        "png" => Some(ImageFormat::Png),
+        "webp" => Some(ImageFormat::WebP),
+        "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
+        "svg" => Some(ImageFormat::Svg),
+        "avif" => Some(ImageFormat::Avif),
+        "gif" => Some(ImageFormat::Gif),
+        "ico" => Some(ImageFormat::Ico),
+        _ => None,
+    }
+}
+
+/// Generates a repository card image in the specified format.
+///
+/// # Arguments
+/// * `name` - Repository name
+/// * `description` - Repository description
+/// * `language` - Primary programming language
+/// * `stars` - Star count as string
+/// * `forks` - Fork count as string
+/// * `format` - Target image format
+/// * `writer` - Output writer for the encoded data
+///
+/// # Returns
+/// Result indicating success or failure
+#[instrument(skip(writer))]
+pub fn generate_image_with_format<W: Write>(
+    name: &str,
+    description: &str,
+    language: &str,
+    stars: &str,
+    forks: &str,
+    format: ImageFormat,
+    writer: W,
+) -> Result<()> {
+    encode::generate_image(name, description, language, stars, forks, format, writer)
+}
+
+/// Generates a PNG repository card image (legacy function for backward compatibility).
 ///
 /// # Arguments
 /// * `name` - Repository name
@@ -118,40 +165,17 @@ pub fn generate_image<W: Write>(
     language: &str,
     stars: &str,
     forks: &str,
-    mut writer: W,
+    writer: W,
 ) -> Result<()> {
-    let svg_template = include_str!("../card.svg");
-    let wrapped_description = wrap_text(description, 65);
-    let language_color = colors::get_color(language).unwrap_or_else(|| "#f1e05a".to_string());
-
-    let formatted_stars = format_count(stars);
-    let formatted_forks = format_count(forks);
-
-    let svg_filled = svg_template
-        .replace("{{name}}", name)
-        .replace("{{description}}", &wrapped_description)
-        .replace("{{language}}", language)
-        .replace("{{language_color}}", &language_color)
-        .replace("{{stars}}", &formatted_stars)
-        .replace("{{forks}}", &formatted_forks);
-
-    let rasterizer = Rasterizer::new();
-    let pixmap = rasterizer.render(&svg_filled)?;
-
-    let mut png_encoder = png::Encoder::new(&mut writer, pixmap.width(), pixmap.height());
-    png_encoder.set_color(png::ColorType::Rgba);
-    png_encoder.set_depth(png::BitDepth::Eight);
-    let mut png_writer = png_encoder
-        .write_header()
-        .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
-    png_writer
-        .write_image_data(pixmap.data())
-        .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
-    png_writer
-        .finish()
-        .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
-
-    Ok(())
+    generate_image_with_format(
+        name,
+        description,
+        language,
+        stars,
+        forks,
+        ImageFormat::Png,
+        writer,
+    )
 }
 
 /// Formats a number string to show thousands with "k" suffix.
@@ -161,7 +185,7 @@ pub fn generate_image<W: Write>(
 ///
 /// # Returns
 /// Formatted string (e.g., "1200" -> "1.2k", "820" -> "820")
-fn format_count(count: &str) -> String {
+pub fn format_count(count: &str) -> String {
     if let Ok(num) = count.parse::<u32>() {
         if num >= 1000 {
             let thousands = num as f64 / 1000.0;

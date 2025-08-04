@@ -4,6 +4,7 @@
 //! that display GitHub repository information in a clean, visual format.
 
 pub mod colors;
+pub mod encode;
 pub mod errors;
 pub mod github;
 pub mod image;

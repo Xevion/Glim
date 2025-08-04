@@ -19,6 +19,7 @@ use crate::{
     github, image,
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
+use std::path::Path as StdPath;
 
 /// Application state containing the rate limiter
 #[derive(Clone, Debug)]
@@ -65,7 +66,7 @@ pub async fn run(address: Option<String>) -> Result<(), LivecardsError> {
         .parse::<SocketAddr>()
         .map_err(|e| ServerError::InvalidAddress(e.to_string()))?;
 
-    info!("Listening on {}", addr);
+    info!("Listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -113,8 +114,8 @@ async fn health_handler() -> Response {
 
 /// Handles HTTP requests for repository cards with rate limiting.
 ///
-/// Endpoint: GET /:owner/:repo
-/// Returns: PNG image of the repository card
+/// Endpoint: GET /:owner/:repo or GET /:owner/:repo.:extension
+/// Returns: Image in the requested format (PNG by default)
 async fn handler(
     Path((owner, repo_name)): Path<(String, String)>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -135,7 +136,10 @@ async fn handler(
         }
     }
 
-    let repo_path = format!("{}/{}", owner, repo_name);
+    // Parse format from repo_name (e.g., "repo.png" -> format PNG, "repo" -> format PNG)
+    let (actual_repo_name, format) = parse_repo_name_and_format(&repo_name);
+
+    let repo_path = format!("{}/{}", owner, actual_repo_name);
     let repo = github::get_repository_info(&repo_path, None)
         .await
         .map_err(|e| {
@@ -145,12 +149,13 @@ async fn handler(
 
     let mut buffer = Cursor::new(Vec::new());
 
-    image::generate_image(
+    image::generate_image_with_format(
         &repo.name,
         &repo.description.unwrap_or_default(),
         &repo.language.unwrap_or_default(),
         &repo.stargazers_count.to_string(),
         &repo.forks_count.to_string(),
+        format,
         &mut buffer,
     )
     .map_err(|e| {
@@ -159,8 +164,32 @@ async fn handler(
     })?;
 
     Ok((
-        [(axum::http::header::CONTENT_TYPE, "image/png")],
+        [(axum::http::header::CONTENT_TYPE, format.mime_type())],
         buffer.into_inner(),
     )
         .into_response())
+}
+
+/// Parses the repository name and format from the path.
+///
+/// # Arguments
+/// * `repo_name` - The repository name which may include an extension
+///
+/// # Returns
+/// Tuple of (actual_repo_name, format)
+fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::ImageFormat) {
+    let path = StdPath::new(repo_name);
+
+    if let Some(extension) = path.extension() {
+        if let Some(extension_str) = extension.to_str() {
+            if let Some(format) = image::parse_extension(extension_str) {
+                // Valid extension found, remove it from repo name
+                let actual_repo_name = path.with_extension("").to_string_lossy().to_string();
+                return (actual_repo_name, format);
+            }
+        }
+    }
+
+    // No valid extension found, use PNG as default
+    (repo_name.to_string(), crate::encode::ImageFormat::Png)
 }

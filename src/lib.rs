@@ -1,4 +1,5 @@
 pub mod colors;
+pub mod encode;
 pub mod errors;
 pub mod github;
 pub mod image;

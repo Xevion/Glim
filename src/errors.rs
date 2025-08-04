@@ -84,6 +84,30 @@ pub enum ImageError {
     /// Failed to write PNG
     #[error("Failed to write PNG: {0}")]
     PngWrite(String),
+
+    /// Failed to write WebP
+    #[error("Failed to write WebP: {0}")]
+    WebPWrite(String),
+
+    /// Failed to write JPEG
+    #[error("Failed to write JPEG: {0}")]
+    JpegWrite(String),
+
+    /// Failed to write SVG
+    #[error("Failed to write SVG: {0}")]
+    SvgWrite(String),
+
+    /// Failed to write AVIF
+    #[error("Failed to write AVIF: {0}")]
+    AvifWrite(String),
+
+    /// Failed to write GIF
+    #[error("Failed to write GIF: {0}")]
+    GifWrite(String),
+
+    /// Failed to write ICO
+    #[error("Failed to write ICO: {0}")]
+    IcoWrite(String),
 }
 
 /// Server/HTTP specific errors

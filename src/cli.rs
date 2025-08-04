@@ -10,7 +10,7 @@ use crate::image;
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
     /// The repository to generate a card for, in the format `owner/repo`.
-    pub repository: String,
+    pub repository: Option<String>,
 
     /// The output path for the generated card.
     #[arg(short, long)]
@@ -19,9 +19,20 @@ pub struct Cli {
     /// GitHub token to use for API requests.
     #[arg(short, long)]
     pub token: Option<String>,
+
+    /// Start the HTTP server.
+    #[arg(
+        short,
+        long,
+        value_name = "HOST:PORT",
+        default_missing_value = Some("127.0.0.1:8000"),
+        num_args = 0..=1,
+        require_equals = true
+    )]
+    pub server: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Repository {
     pub name: String,
     pub description: Option<String>,
@@ -30,9 +41,11 @@ pub struct Repository {
     pub forks_count: u32,
 }
 
-pub async fn run() -> Result<()> {
-    let cli = Cli::parse();
-    let repo_url = format!("https://api.github.com/repos/{}", cli.repository);
+pub async fn run(cli: Cli) -> Result<()> {
+    let repo_url = format!(
+        "https://api.github.com/repos/{}",
+        cli.repository.as_ref().unwrap()
+    );
 
     let token = cli.token.or_else(|| env::var("GITHUB_TOKEN").ok());
 
@@ -54,7 +67,13 @@ pub async fn run() -> Result<()> {
     let output_path = match cli.output {
         Some(path) => path,
         None => {
-            let repo_name = cli.repository.split('/').last().unwrap_or("card");
+            let repo_name = cli
+                .repository
+                .as_ref()
+                .unwrap()
+                .split('/')
+                .last()
+                .unwrap_or("card");
             PathBuf::from(format!("{}.png", repo_name))
         }
     };

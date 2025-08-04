@@ -7,6 +7,7 @@ mod cli;
 mod colors;
 mod github;
 mod image;
+mod ratelimit;
 mod server;
 
 use anyhow::Result;

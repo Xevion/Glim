@@ -1,5 +1,6 @@
 # Build Stage
-FROM rust:1.82.0-bookworm AS builder
+ARG RUST_VERSION=1.86.0
+FROM rust:${RUST_VERSION}-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \

@@ -84,11 +84,16 @@ impl Rasterizer {
         let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
             .ok_or_else(|| LivecardsError::Image(ImageError::PixmapCreation))?;
 
-        resvg::render(
-            &tree,
-            tiny_skia::Transform::identity(),
-            &mut pixmap.as_mut(),
-        );
+        let (width, height) = (pixmap_size.width() as f32, pixmap_size.height() as f32);
+        let (center_x, center_y) = (width / 2.0, height / 2.0);
+
+        // Create transform that scales from center: translate to center, scale, translate back
+        let zoom = 0.90; // 10% zoom out from center
+        let render_ts = tiny_skia::Transform::from_translate(-center_x, -center_y)
+            .post_scale(zoom, zoom)
+            .post_translate(center_x, center_y);
+
+        resvg::render(&tree, render_ts, &mut pixmap.as_mut());
 
         Ok(pixmap)
     }

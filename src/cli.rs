@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use serde::Deserialize;
+use std::env;
 
 use crate::image;
 
@@ -24,8 +25,17 @@ pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     let repo_url = format!("https://api.github.com/repos/{}", cli.repository);
 
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(token) = env::var("GITHUB_TOKEN") {
+        headers.insert(
+            "Authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("livecards-generator")
+        .default_headers(headers)
         .build()?;
 
     let repo: Repository = client.get(&repo_url).send().await?.json().await?;

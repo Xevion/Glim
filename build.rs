@@ -16,12 +16,25 @@ fn main() {
     let path = Path::new(&env::var("OUT_DIR").unwrap()).join("colors.rs");
     let mut file = BufWriter::new(File::create(&path).unwrap());
 
-    let languages_yml = reqwest::blocking::get(
-        "https://raw.githubusercontent.com/github-linguist/linguist/master/lib/linguist/languages.yml",
-    )
-    .unwrap()
-    .text()
-    .unwrap();
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(token) = env::var("GITHUB_TOKEN") {
+        headers.insert(
+            "Authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap();
+
+    let languages_yml = client
+        .get("https://raw.githubusercontent.com/github-linguist/linguist/master/lib/linguist/languages.yml")
+        .send()
+        .unwrap()
+        .text()
+        .unwrap();
 
     let languages: HashMap<String, Language> = serde_yaml::from_str(&languages_yml).unwrap();
 

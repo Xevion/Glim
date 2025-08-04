@@ -72,4 +72,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Use ENTRYPOINT for the executable and CMD for default arguments
 ENTRYPOINT ["/usr/src/app/livecards"]
-CMD 0.0.0.0:${PORT}
+CMD ["0.0.0.0:8000"]

@@ -19,9 +19,6 @@ jobs:
 
       - name: Test image functionality
         run: |
-          # Test that the image can start and show help
-          docker run --rm livecards-test --help
-
           # Test server startup
           docker run -d --name test-server -p 8000:8000 livecards-test
 

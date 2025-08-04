@@ -56,7 +56,7 @@ jobs:
 
       - name: Build project (native)
         if: ${{ matrix.target.cross == false }}
-        run: cargo build --target ${{ matrix.target.target }} --features ${{ matrix.feature }}
+        run: cargo build --release --target ${{ matrix.target.target }} --features ${{ matrix.feature }}
 
       - name: Build project (cross-compilation)
         if: ${{ matrix.target.cross == true }}
@@ -73,3 +73,10 @@ jobs:
       - name: Run tests (cross-compiled)
         if: ${{ matrix.target.test == true && matrix.target.cross == true }}
         run: cross test --verbose --features ${{ matrix.feature }},vendored-openssl --target ${{ matrix.target.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: livecards-${{ matrix.target.target }}-${{ matrix.feature }}
+          path: target/${{ matrix.target.target }}/release/livecards
+          if-no-files-found: error

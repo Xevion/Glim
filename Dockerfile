@@ -41,6 +41,7 @@ ARG GID=1000
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Etc/UTC
@@ -65,10 +66,10 @@ ARG PORT=8000
 ENV PORT=${PORT}
 EXPOSE ${PORT}
 
-# Add health check (using wget since curl isn't in Alpine by default)
+# Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl --fail http://localhost:${PORT}/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
 
 # Use ENTRYPOINT for the executable and CMD for default arguments
 ENTRYPOINT ["/usr/src/app/livecards"]
-CMD ["0.0.0.0:${PORT}"]
+CMD 0.0.0.0:${PORT}

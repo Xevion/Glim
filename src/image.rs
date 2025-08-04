@@ -71,6 +71,7 @@ pub fn generate_image(
     language: &str,
     stars: &str,
     forks: &str,
+    output_path: &str,
 ) -> Result<()> {
     let svg_template = std::fs::read_to_string("card.svg")?;
     let wrapped_description = wrap_text(description, 65);
@@ -88,9 +89,9 @@ pub fn generate_image(
 
     let pixmap = rasterizer.render(&svg_filled)?;
 
-    pixmap.save_png("card.png")?;
+    pixmap.save_png(output_path)?;
 
-    println!("Successfully generated card.png.");
+    println!("Successfully generated {}.", output_path);
 
     Ok(())
 }

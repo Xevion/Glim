@@ -14,51 +14,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug build context
-        run: |
-          echo "=== Build Context Analysis ==="
-          echo "Repository size:"
-          du -sh .
-          echo ""
-          echo "Largest directories:"
-          du -sh * | sort -hr | head -10
-          echo ""
-          echo "Files in root directory:"
-          ls -la
-          echo ""
-          echo "Target directory size (if exists):"
-          du -sh target/ 2>/dev/null || echo "target/ not found"
-          echo ""
-          echo "Git directory size:"
-          du -sh .git/ 2>/dev/null || echo ".git/ not found"
-
       - name: Build Docker image
         run: docker build --build-arg RUST_VERSION=${{ env.RUST_VERSION }} -t livecards-test .
-
-      - name: Debug image analysis
-        run: |
-          echo "=== Image Analysis ==="
-          echo "Image details:"
-          docker images livecards-test
-          echo ""
-          echo "Image history:"
-          docker history livecards-test
-          echo ""
-          echo "Image layers:"
-          docker inspect livecards-test | jq '.[0].Layers' 2>/dev/null || echo "jq not available, showing raw inspect:"
-          docker inspect livecards-test
-          echo ""
-          echo "Container filesystem analysis:"
-          docker run --rm livecards-test find / -type f -size +1M 2>/dev/null | head -20
-          echo ""
-          echo "Largest files in container:"
-          docker run --rm livecards-test du -ah / 2>/dev/null | sort -hr | head -20
-          echo ""
-          echo "Container root directory:"
-          docker run --rm livecards-test ls -la /
-          echo ""
-          echo "Application directory contents:"
-          docker run --rm livecards-test ls -la /usr/src/app/
 
       - name: Test image functionality
         run: |

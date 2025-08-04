@@ -27,6 +27,7 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: windows-latest
             target: aarch64-pc-windows-msvc
+            test: false # cross-compilation is not required, but we can't test it natively
         feature: [cli, server]
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +62,10 @@ jobs:
         if: ${{ !matrix.target.cross }} # default to false if not set
         uses: taiki-e/install-action@nextest
 
-      - name: Run tests
-        if: ${{ !matrix.target.cross }} # default to false if not set
+      - name: Run tests (native)
+        if: (matrix.target.cross != true) && (matrix.target.test != false)
+        run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}
+
+      - name: Run tests (cross-compiled)
+        if: matrix.target.cross && (matrix.target.test != false)
         run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}

@@ -16,18 +16,28 @@ jobs:
         target:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            test: true
+            cross: false
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            test: true
             cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
+            test: true
+            cross: false
           - os: macos-latest
             target: aarch64-apple-darwin
+            test: true
+            cross: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            test: true
+            cross: false
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             test: false # cross-compilation is not required, but we can't test it natively
+            cross: false
         feature: [cli, server]
     steps:
       - uses: actions/checkout@v4
@@ -42,30 +52,24 @@ jobs:
 
       - name: Install cross
         if: matrix.target.cross
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Install macOS dependencies
-        if: matrix.target.os == 'macos-latest'
-        run: |
-          brew install pkg-config openssl@3
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build project (native)
-        if: ${{ !matrix.target.cross }} # default to false if not set
+        if: ${{ matrix.target.cross == false }}
         run: cargo build --target ${{ matrix.target.target }} --features ${{ matrix.feature }}
 
       - name: Build project (cross-compilation)
-        if: matrix.target.cross
+        if: ${{ matrix.target.cross == true }}
         run: cross build --release --target=${{ matrix.target.target }} --features ${{ matrix.feature }},vendored-openssl
 
       - name: Install nextest
-        if: ${{ !matrix.target.cross }} # default to false if not set
+        if: ${{ matrix.target.test != false }}
         uses: taiki-e/install-action@nextest
 
       - name: Run tests (native)
-        if: (matrix.target.cross != true) && (matrix.target.test != false)
+        if: ${{ matrix.target.test == true && matrix.target.cross == false }}
         run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}
 
       - name: Run tests (cross-compiled)
-        if: matrix.target.cross && (matrix.target.test != false)
-        run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}
+        if: ${{ matrix.target.test == true && matrix.target.cross == true }}
+        run: cross test --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}

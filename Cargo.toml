@@ -16,7 +16,8 @@ serde_yaml = "0.9.34"
 phf = { version = "0.11.2", features = ["macros"] }
 axum = { version = "0.7.5", features = ["macros"] }
 tower-http = { version = "0.5.2", features = ["fs"] }
-lazy_static = "1.5.0"
+moka = { version = "0.12.7", features = ["future"] }
+once_cell = "1.19.0"
 png = "0.17.13"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

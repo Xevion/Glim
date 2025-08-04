@@ -1,6 +1,7 @@
 use crate::colors;
 use anyhow::Result;
 use resvg::{tiny_skia, usvg};
+use std::io::Write;
 
 pub struct Rasterizer {
     font_db: usvg::fontdb::Database,
@@ -65,13 +66,13 @@ impl Rasterizer {
     }
 }
 
-pub fn generate_image(
+pub fn generate_image<W: Write>(
     name: &str,
     description: &str,
     language: &str,
     stars: &str,
     forks: &str,
-    output_path: &str,
+    mut writer: W,
 ) -> Result<()> {
     let svg_template = std::fs::read_to_string("card.svg")?;
     let wrapped_description = wrap_text(description, 65);
@@ -86,12 +87,14 @@ pub fn generate_image(
         .replace("{{forks}}", forks);
 
     let rasterizer = Rasterizer::new();
-
     let pixmap = rasterizer.render(&svg_filled)?;
 
-    pixmap.save_png(output_path)?;
-
-    println!("Successfully generated {}.", output_path);
+    let mut png_encoder = png::Encoder::new(&mut writer, pixmap.width(), pixmap.height());
+    png_encoder.set_color(png::ColorType::Rgba);
+    png_encoder.set_depth(png::BitDepth::Eight);
+    let mut png_writer = png_encoder.write_header()?;
+    png_writer.write_image_data(pixmap.data())?;
+    png_writer.finish()?;
 
     Ok(())
 }

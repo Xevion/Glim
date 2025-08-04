@@ -1,5 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 
 use crate::{github, image};
@@ -42,14 +44,19 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
     };
 
+    let file = File::create(&output_path)?;
+    let writer = BufWriter::new(file);
+
     image::generate_image(
         &repo.name,
         &repo.description.unwrap_or_default(),
         &repo.language.unwrap_or_default(),
         &repo.stargazers_count.to_string(),
         &repo.forks_count.to_string(),
-        &output_path.to_string_lossy(),
+        writer,
     )?;
+
+    println!("Successfully generated {}.", output_path.to_string_lossy());
 
     Ok(())
 }

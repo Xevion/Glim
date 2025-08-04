@@ -952,6 +952,7 @@ dependencies = [
  "lazy_static",
  "phf",
  "phf_codegen",
+ "png",
  "reqwest",
  "resvg",
  "serde",

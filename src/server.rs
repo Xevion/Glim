@@ -6,6 +6,7 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
+use std::io::Cursor;
 
 use crate::{github, image};
 
@@ -30,8 +31,7 @@ async fn handler(Path((owner, repo_name)): Path<(String, String)>) -> Result<Res
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut temp_path = std::env::temp_dir();
-    temp_path.push(format!("{}-{}.png", owner, repo.name));
+    let mut buffer = Cursor::new(Vec::new());
 
     image::generate_image(
         &repo.name,
@@ -39,19 +39,13 @@ async fn handler(Path((owner, repo_name)): Path<(String, String)>) -> Result<Res
         &repo.language.unwrap_or_default(),
         &repo.stargazers_count.to_string(),
         &repo.forks_count.to_string(),
-        &temp_path.to_string_lossy(),
+        &mut buffer,
     )
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let image_data = tokio::fs::read(&temp_path)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    tokio::fs::remove_file(&temp_path).await.ok();
-
     Ok((
         [(axum::http::header::CONTENT_TYPE, "image/png")],
-        image_data,
+        buffer.into_inner(),
     )
         .into_response())
 }

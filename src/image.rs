@@ -104,7 +104,7 @@ pub fn generate_image<W: Write>(
     forks: &str,
     mut writer: W,
 ) -> Result<()> {
-    let svg_template = std::fs::read_to_string("card.svg")?;
+    let svg_template = include_str!("../card.svg");
     let wrapped_description = wrap_text(description, 65);
     let language_color = colors::get_color(language).unwrap_or_else(|| "#f1e05a".to_string());
 

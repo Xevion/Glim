@@ -13,6 +13,9 @@ use axum::{
 };
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::time::Duration;
+use tokio::signal;
+use tokio::time::timeout;
 use tracing::{info, instrument};
 
 use crate::{
@@ -44,12 +47,11 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
     response
 }
 
-/// Starts the HTTP server.
+/// Starts the HTTP server with graceful shutdown.
 ///
 /// # Arguments
-/// * `address` - Optional server address (defaults to "127.0.0.1:8000")
-pub async fn run(address: Option<String>) -> Result<(), LivecardsError> {
-    // Initialize rate limiter with default configuration
+/// * `address` - Server address (e.g., "127.0.0.1:8000")
+pub async fn start_server(address: String) {
     let rate_limiter = RateLimiter::new(RateLimitConfig::default());
     let app_state = AppState { rate_limiter };
 
@@ -61,24 +63,74 @@ pub async fn run(address: Option<String>) -> Result<(), LivecardsError> {
         .layer(middleware::from_fn(add_server_header))
         .with_state(app_state);
 
-    let addr = address
-        .unwrap_or_else(|| "127.0.0.1:8000".to_string())
-        .parse::<SocketAddr>()
-        .map_err(|e| ServerError::InvalidAddress(e.to_string()))?;
+    let addr = match address.parse::<SocketAddr>() {
+        Ok(addr) => addr,
+        Err(e) => {
+            tracing::error!("Invalid address '{}': {}", address, e);
+            return;
+        }
+    };
 
     info!("Listening on http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| ServerError::BindError(e.to_string()))?;
-    axum::serve(
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::error!("Failed to bind to address '{}': {}", addr, e);
+            return;
+        }
+    };
+
+    let server = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .map_err(|e| ServerError::StartError(e.to_string()))?;
+    );
 
-    Ok(())
+    let graceful = server.with_graceful_shutdown(shutdown_signal());
+
+    info!("Server starting, press Ctrl+C to shut down.");
+
+    if let Err(e) = graceful.await {
+        tracing::error!("Server error: {}", e);
+    }
+}
+
+/// Listens for the shutdown signal (Ctrl+C).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            info!("Ctrl+C received, starting graceful shutdown.");
+        },
+        _ = terminate => {
+            info!("Terminate signal received, starting graceful shutdown.");
+        },
+    }
+
+    match timeout(Duration::from_secs(2), async {
+        // TODO: Future cleanup logic
+    })
+    .await
+    {
+        Ok(_) => info!("Graceful shutdown complete."),
+        Err(_) => tracing::warn!("Graceful shutdown timed out after 2 seconds."),
+    }
 }
 
 /// Handles index route - redirects to example repository.

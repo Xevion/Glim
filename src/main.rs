@@ -32,10 +32,7 @@ async fn main() -> Result<()> {
             .expect("setting default subscriber failed");
 
         if let Some(addr) = cli.server.as_ref() {
-            if let Err(e) = server::run(Some(addr.clone())).await {
-                tracing::error!("Server error: {}", e);
-                std::process::exit(1);
-            }
+            server::start_server(addr.clone()).await;
         } else if cli.repository.is_some() {
             cli::run(cli).await?;
         } else {
@@ -57,9 +54,10 @@ async fn main() -> Result<()> {
         let args: Vec<String> = std::env::args().collect();
         let server_addr = args.get(1).cloned();
 
-        if let Err(e) = server::run(server_addr).await {
-            eprintln!("Error starting server: {}", e);
-            std::process::exit(1);
+        if let Some(addr) = server_addr {
+            server::start_server(addr).await;
+        } else {
+            tracing::error!("Please provide a server address or enable the 'cli' feature.");
         }
     }
 

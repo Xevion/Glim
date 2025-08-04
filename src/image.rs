@@ -108,13 +108,16 @@ pub fn generate_image<W: Write>(
     let wrapped_description = wrap_text(description, 65);
     let language_color = colors::get_color(language).unwrap_or_else(|| "#f1e05a".to_string());
 
+    let formatted_stars = format_count(stars);
+    let formatted_forks = format_count(forks);
+
     let svg_filled = svg_template
         .replace("{{name}}", name)
         .replace("{{description}}", &wrapped_description)
         .replace("{{language}}", language)
         .replace("{{language_color}}", &language_color)
-        .replace("{{stars}}", stars)
-        .replace("{{forks}}", forks);
+        .replace("{{stars}}", &formatted_stars)
+        .replace("{{forks}}", &formatted_forks);
 
     let rasterizer = Rasterizer::new();
     let pixmap = rasterizer.render(&svg_filled)?;
@@ -127,4 +130,28 @@ pub fn generate_image<W: Write>(
     png_writer.finish()?;
 
     Ok(())
+}
+
+/// Formats a number string to show thousands with "k" suffix.
+///
+/// # Arguments
+/// * `count` - The count as a string
+///
+/// # Returns
+/// Formatted string (e.g., "1200" -> "1.2k", "820" -> "820")
+fn format_count(count: &str) -> String {
+    if let Ok(num) = count.parse::<u32>() {
+        if num >= 1000 {
+            let thousands = num as f64 / 1000.0;
+            if thousands >= 10.0 {
+                format!("{}k", (thousands as u32))
+            } else {
+                format!("{:.1}k", thousands)
+            }
+        } else {
+            count.to_string()
+        }
+    } else {
+        count.to_string()
+    }
 }

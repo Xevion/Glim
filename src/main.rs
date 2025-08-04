@@ -21,8 +21,7 @@ async fn main() -> Result<()> {
         .with_max_level(cli.log_level)
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     if let Some(addr) = cli.server.as_ref() {
         server::run(Some(addr.clone())).await;

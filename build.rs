@@ -43,7 +43,7 @@ fn main() {
     let yaml_root = &docs[0]; // Get the first (and only) YAML document
 
     let mut color_map = Map::new();
-    
+
     // Iterate through the mapping manually
     if let Some(mapping) = yaml_root.as_mapping() {
         for (name_yaml, lang_yaml) in mapping {

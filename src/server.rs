@@ -19,18 +19,17 @@ use crate::{github, image};
 /// Middleware to add Server header to all responses
 async fn add_server_header(request: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(request).await;
-    
+
     // Get version from Cargo.toml
     let version = env!("CARGO_PKG_VERSION");
     let server_header = format!("livecards/{}", version);
-    
+
     if let Ok(header_value) = axum::http::HeaderValue::from_str(&server_header) {
-        response.headers_mut().insert(
-            axum::http::header::SERVER,
-            header_value
-        );
+        response
+            .headers_mut()
+            .insert(axum::http::header::SERVER, header_value);
     }
-    
+
     response
 }
 
@@ -41,7 +40,7 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
 pub async fn run(address: Option<String>) {
     let app = Router::new()
         .route("/", get(index_handler))
-        .route("/:owner/:repo", get(handler))
+        .route("/{owner}/{repo}", get(handler))
         .layer(middleware::from_fn(add_server_header));
 
     let addr = address

@@ -14,7 +14,10 @@ use std::io::Cursor;
 use std::net::SocketAddr;
 use tracing::{info, instrument};
 
-use crate::{github, image, ratelimit::{RateLimiter, RateLimitConfig, RateLimitResult}};
+use crate::{
+    github, image,
+    ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
+};
 
 /// Application state containing the rate limiter
 #[derive(Clone, Debug)]
@@ -52,6 +55,7 @@ pub async fn run(address: Option<String>) {
         .route("/", get(index_handler))
         .route("/{owner}/{repo}", get(handler))
         .route("/status", get(status_handler))
+        .route("/health", get(health_handler))
         .layer(middleware::from_fn(add_server_header))
         .with_state(app_state);
 
@@ -87,12 +91,20 @@ async fn index_handler() -> Redirect {
 async fn status_handler(State(state): State<AppState>) -> Result<Response, StatusCode> {
     let status = state.rate_limiter.status().await;
     let json = status.to_string();
-    
+
     Ok((
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         json,
     )
         .into_response())
+}
+
+/// Handles health check route - returns simple OK response.
+///
+/// Endpoint: GET /health
+/// Returns: 200 OK with "OK" text
+async fn health_handler() -> Result<Response, StatusCode> {
+    Ok(([(axum::http::header::CONTENT_TYPE, "text/plain")], "OK").into_response())
 }
 
 /// Handles HTTP requests for repository cards with rate limiting.

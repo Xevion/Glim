@@ -61,15 +61,19 @@ RUN chmod +x ${APP}/livecards
 USER $APP_USER
 WORKDIR ${APP}
 
-# Use ARG for build-time configuration, ENV for runtime
+# Build-time arg for PORT, default to 8000
 ARG PORT=8000
+# Runtime environment var for PORT, default to build-time arg
 ENV PORT=${PORT}
 EXPOSE ${PORT}
+
+# Build-time arg for HOST, default to 0.0.0.0 (ipv4 all interfaces)
+ARG HOST=0.0.0.0
+# Runtime environment var for HOST, default to build-time arg
+ENV HOST=${HOST}
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
 
-# Use ENTRYPOINT for the executable and CMD for default arguments
-ENTRYPOINT ["/usr/src/app/livecards"]
-CMD ["0.0.0.0:8000"]
+CMD ["sh", "-c", "exec ./livecards ${HOST}:${PORT}"]

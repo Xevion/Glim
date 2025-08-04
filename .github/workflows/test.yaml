@@ -78,5 +78,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: livecards-${{ matrix.target.target }}-${{ matrix.feature }}
-          path: target/${{ matrix.target.target }}/release/livecards
+          path: |
+            target/${{ matrix.target.target }}/release/livecards
+            target/${{ matrix.target.target }}/release/livecards.exe
           if-no-files-found: error

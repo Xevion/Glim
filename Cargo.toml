@@ -21,7 +21,7 @@ resvg = "0.45.1"
 tiny-skia = "0.11.4"
 usvg = "0.45.1"
 clap = { version = "4.5.11", features = ["derive"], optional = true }
-reqwest = { version = "0.12.5", features = ["json"] }
+reqwest = { version = "0.12.5", features = ["json", "rustls-tls-native-roots"], default-features = false }
 serde = { version = "1.0.204", features = ["derive"] }
 tokio = { version = "1.39.2", features = ["full"] }
 saphyr = "0.0.6"
@@ -55,3 +55,10 @@ panic = "abort"
 codegen-units = 1
 # Keep overflow checks for safety
 overflow-checks = true
+
+[workspace.metadata.cross.target.aarch64-unknown-linux-gnu]
+# Install libssl-dev:arm64, see <https://github.com/cross-rs/cross/blob/main/docs/custom_images.md#adding-dependencies-to-existing-images>
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
+    "apt-get update && apt-get --assume-yes install libssl-dev:$CROSS_DEB_ARCH"
+]

@@ -1,3 +1,7 @@
+//! HTTP server for generating repository cards on demand.
+//!
+//! Provides a web API endpoint for generating PNG cards dynamically.
+
 use axum::{
     extract::Path,
     http::StatusCode,
@@ -11,6 +15,10 @@ use tracing::{info, instrument};
 
 use crate::{github, image};
 
+/// Starts the HTTP server.
+///
+/// # Arguments
+/// * `address` - Optional server address (defaults to "127.0.0.1:8000")
 pub async fn run(address: Option<String>) {
     let app = Router::new().route("/:owner/:repo", get(handler));
 
@@ -25,6 +33,10 @@ pub async fn run(address: Option<String>) {
     axum::serve(listener, app).await.unwrap();
 }
 
+/// Handles HTTP requests for repository cards.
+///
+/// Endpoint: GET /:owner/:repo
+/// Returns: PNG image of the repository card
 #[instrument]
 #[axum::debug_handler]
 async fn handler(Path((owner, repo_name)): Path<(String, String)>) -> Result<Response, StatusCode> {

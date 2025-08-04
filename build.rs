@@ -1,3 +1,8 @@
+//! Build script to generate language color mappings from GitHub Linguist.
+//!
+//! This script downloads the latest language definitions from GitHub Linguist
+//! and generates a static map of language names to their hex colors.
+
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;

@@ -1,13 +1,27 @@
+//! Image generation for repository cards.
+//!
+//! This module handles SVG template processing and PNG rasterization
+//! to create beautiful repository cards with dynamic content.
+
 use crate::colors;
 use anyhow::Result;
 use resvg::{tiny_skia, usvg};
 use std::io::Write;
 use tracing::instrument;
 
+/// SVG to PNG rasterizer with font support.
 pub struct Rasterizer {
     font_db: usvg::fontdb::Database,
 }
 
+/// Wraps text to fit within a specified width.
+///
+/// # Arguments
+/// * `text` - The text to wrap
+/// * `width` - Maximum line width in characters
+///
+/// # Returns
+/// SVG tspan elements with wrapped text
 fn wrap_text(text: &str, width: usize) -> String {
     let mut lines = Vec::new();
     let mut current_line = String::new();
@@ -69,6 +83,18 @@ impl Rasterizer {
     }
 }
 
+/// Generates a PNG repository card image.
+///
+/// # Arguments
+/// * `name` - Repository name
+/// * `description` - Repository description
+/// * `language` - Primary programming language
+/// * `stars` - Star count as string
+/// * `forks` - Fork count as string
+/// * `writer` - Output writer for PNG data
+///
+/// # Returns
+/// Result indicating success or failure
 #[instrument(skip(writer))]
 pub fn generate_image<W: Write>(
     name: &str,

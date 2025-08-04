@@ -1,3 +1,7 @@
+//! Command-line interface for livecards.
+//!
+//! Handles CLI argument parsing and execution logic for generating repository cards.
+
 use anyhow::Result;
 use clap::Parser;
 use std::fs::File;
@@ -7,6 +11,7 @@ use tracing::Level;
 
 use crate::{github, image};
 
+/// Command-line arguments for livecards.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
@@ -36,6 +41,13 @@ pub struct Cli {
     pub log_level: Level,
 }
 
+/// Executes the CLI command to generate a repository card.
+///
+/// # Arguments
+/// * `cli` - Parsed command-line arguments
+///
+/// # Returns
+/// Result indicating success or failure of card generation
 pub async fn run(cli: Cli) -> Result<()> {
     let repo_path = cli.repository.as_ref().unwrap();
     let repo = github::get_repository_info(repo_path, cli.token).await?;

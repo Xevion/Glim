@@ -56,7 +56,16 @@ impl Rasterizer {
     pub fn new() -> Self {
         let mut fontdb = usvg::fontdb::Database::new();
         fontdb.load_system_fonts();
-        fontdb.load_fonts_dir("src/fonts");
+
+        // Try multiple font paths for different environments
+        let font_paths = ["src/fonts", "fonts"];
+        for path in &font_paths {
+            if std::path::Path::new(path).exists() {
+                fontdb.load_fonts_dir(path);
+                break;
+            }
+        }
+
         Self { font_db: fontdb }
     }
 

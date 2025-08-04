@@ -2,6 +2,7 @@
 //!
 //! Provides a web API endpoint for generating PNG cards dynamically with rate limiting.
 
+use crate::errors::{LivecardsError, ServerError};
 use axum::{
     extract::{ConnectInfo, Path, State},
     http::StatusCode,
@@ -47,7 +48,7 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
 ///
 /// # Arguments
 /// * `address` - Optional server address (defaults to "127.0.0.1:8000")
-pub async fn run(address: Option<String>) {
+pub async fn run(address: Option<String>) -> Result<(), LivecardsError> {
     // Initialize rate limiter with default configuration
     let rate_limiter = RateLimiter::new(RateLimitConfig::default());
     let app_state = AppState { rate_limiter };
@@ -63,17 +64,21 @@ pub async fn run(address: Option<String>) {
     let addr = address
         .unwrap_or_else(|| "127.0.0.1:8000".to_string())
         .parse::<SocketAddr>()
-        .unwrap();
+        .map_err(|e| ServerError::InvalidAddress(e.to_string()))?;
 
     info!("Listening on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| ServerError::BindError(e.to_string()))?;
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
-    .unwrap();
+    .map_err(|e| ServerError::StartError(e.to_string()))?;
+
+    Ok(())
 }
 
 /// Handles index route - redirects to example repository.
@@ -89,30 +94,28 @@ async fn index_handler() -> Redirect {
 ///
 /// Endpoint: GET /status
 /// Returns: JSON with current rate limiter status
-async fn status_handler(State(state): State<AppState>) -> Result<Response, StatusCode> {
+async fn status_handler(State(state): State<AppState>) -> Response {
     let status = state.rate_limiter.status().await;
     let json = status.to_string();
-
-    Ok((
+    (
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         json,
     )
-        .into_response())
+        .into_response()
 }
 
 /// Handles health check route - returns simple OK response.
 ///
 /// Endpoint: GET /health
 /// Returns: 200 OK with "OK" text
-async fn health_handler() -> Result<Response, StatusCode> {
-    Ok(([(axum::http::header::CONTENT_TYPE, "text/plain")], "OK").into_response())
+async fn health_handler() -> Response {
+    ([(axum::http::header::CONTENT_TYPE, "text/plain")], "OK").into_response()
 }
 
 /// Handles HTTP requests for repository cards with rate limiting.
 ///
 /// Endpoint: GET /:owner/:repo
 /// Returns: PNG image of the repository card
-#[axum::debug_handler]
 async fn handler(
     Path((owner, repo_name)): Path<(String, String)>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -138,10 +141,7 @@ async fn handler(
         .await
         .map_err(|e| {
             tracing::error!("Failed to get repository info: {}", e);
-            match e {
-                crate::errors::LivecardsError::GitHub(github_error) => github_error.into(),
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            }
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     let mut buffer = Cursor::new(Vec::new());

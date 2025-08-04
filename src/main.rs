@@ -53,7 +53,10 @@ async fn main() -> Result<()> {
         let args: Vec<String> = std::env::args().collect();
         let server_addr = args.get(1).cloned();
 
-        server::run(server_addr).await;
+        if let Err(e) = server::run(server_addr).await {
+            eprintln!("Error starting server: {}", e);
+            std::process::exit(1);
+        }
     }
 
     Ok(())

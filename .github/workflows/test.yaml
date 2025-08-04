@@ -7,28 +7,6 @@ env:
   RUST_VERSION: "1.86.0"
 
 jobs:
-  test:
-    name: Test (${{ matrix.feature }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        feature: [cli, server]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-
-      - uses: Swatinem/rust-cache@v2
-
-      - uses: taiki-e/install-action@nextest
-
-      - name: Run tests
-        run: cargo nextest run --verbose --features ${{ matrix.feature }}
-
   build:
     name: Build (${{ matrix.target.target }}, ${{ matrix.feature }})
     runs-on: ${{ matrix.target.os }}
@@ -61,15 +39,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install Linux dependencies
-        if: matrix.target.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            libc6-dev-arm64-cross \
-            crossbuild-essential-arm64
-
       - name: Install cross
         if: matrix.target.cross
         run: |
@@ -79,6 +48,7 @@ jobs:
         if: matrix.target.os == 'macos-latest'
         run: |
           brew install pkg-config openssl@3
+
       - name: Build project (native)
         if: ${{ !matrix.target.cross }} # default to false if not set
         run: cargo build --target ${{ matrix.target.target }} --features ${{ matrix.feature }}
@@ -86,3 +56,11 @@ jobs:
       - name: Build project (cross-compilation)
         if: matrix.target.cross
         run: cross build --release --target=${{ matrix.target.target }} --features ${{ matrix.feature }},vendored-openssl
+
+      - name: Install nextest
+        if: ${{ !matrix.target.cross }} # default to false if not set
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests
+        if: ${{ !matrix.target.cross }} # default to false if not set
+        run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}

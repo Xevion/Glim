@@ -3,19 +3,16 @@
 //! This script downloads the latest language definitions from GitHub Linguist
 //! and generates a static map of language names to their hex colors.
 
-use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
 use phf_codegen::Map;
-use serde::Deserialize;
+use saphyr::{LoadableYamlNode, Yaml};
 
-#[derive(Debug, Deserialize)]
-struct Language {
-    color: Option<String>,
-}
+// We'll extract the color field manually from the YAML structure
+// instead of using Serde deserialize
 
 fn main() {
     let path = Path::new(&env::var("OUT_DIR").unwrap()).join("colors.rs");
@@ -41,12 +38,30 @@ fn main() {
         .text()
         .unwrap();
 
-    let languages: HashMap<String, Language> = serde_yaml::from_str(&languages_yml).unwrap();
+    // Parse YAML using Saphyr
+    let docs = Yaml::load_from_str(&languages_yml).unwrap();
+    let yaml_root = &docs[0]; // Get the first (and only) YAML document
 
     let mut color_map = Map::new();
-    for (name, lang) in languages {
-        if let Some(color) = lang.color {
-            color_map.entry(name, &format!("\"{}\"", color));
+    
+    // Iterate through the mapping manually
+    if let Some(mapping) = yaml_root.as_mapping() {
+        for (name_yaml, lang_yaml) in mapping {
+            if let Some(name) = name_yaml.as_str() {
+                // Check if the language has a color field
+                if let Some(lang_mapping) = lang_yaml.as_mapping() {
+                    for (key_yaml, value_yaml) in lang_mapping {
+                        if let Some(key_str) = key_yaml.as_str() {
+                            if key_str == "color" {
+                                if let Some(color) = value_yaml.as_str() {
+                                    color_map.entry(name.to_string(), &format!("\"{}\"", color));
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

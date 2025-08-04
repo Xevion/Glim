@@ -43,6 +43,7 @@ fn main() {
     let yaml_root = &docs[0]; // Get the first (and only) YAML document
 
     let mut color_map = Map::new();
+    let mut color_strings: Vec<(String, String)> = Vec::new();
 
     // Iterate through the mapping manually
     if let Some(mapping) = yaml_root.as_mapping() {
@@ -54,7 +55,8 @@ fn main() {
                         if let Some(key_str) = key_yaml.as_str() {
                             if key_str == "color" {
                                 if let Some(color) = value_yaml.as_str() {
-                                    color_map.entry(name.to_string(), &format!("\"{}\"", color));
+                                    let color_value = format!("\"{}\"", color);
+                                    color_strings.push((name.to_string(), color_value));
                                 }
                                 break;
                             }
@@ -63,6 +65,11 @@ fn main() {
                 }
             }
         }
+    }
+
+    // Build the PHF map from the collected colors
+    for (name, color) in color_strings.iter() {
+        color_map.entry(name, color);
     }
 
     writeln!(

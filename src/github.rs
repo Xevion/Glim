@@ -250,9 +250,15 @@ impl GitHubClient {
 
         let status = response.status();
         info!(
-            "Received response: {} {}",
-            status.as_u16(),
-            status.canonical_reason().unwrap_or("Unknown")
+            status = format!(
+                "{}{}",
+                status.as_u16(),
+                status
+                    .canonical_reason()
+                    .map(|reason| format!(" {}", reason))
+                    .unwrap_or_default()
+            ),
+            "Response received"
         );
 
         if status.is_success() {

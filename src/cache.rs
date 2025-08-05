@@ -47,6 +47,7 @@
 //!
 //! ```rust
 //! use glim::cache::Cacheable;
+//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct MyCustomType {

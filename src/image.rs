@@ -82,8 +82,6 @@ impl Rasterizer {
         svg_data: &str,
         scale: Option<f64>,
     ) -> Result<tiny_skia::Pixmap> {
-        let start_time = std::time::Instant::now();
-
         let options = usvg::Options {
             fontdb: std::sync::Arc::new(self.font_db.clone()),
             ..Default::default()
@@ -124,31 +122,6 @@ impl Rasterizer {
             .pre_scale(content_scale, content_scale);
 
         resvg::render(&tree, render_ts, &mut pixmap.as_mut());
-
-        let duration = start_time.elapsed();
-        let duration_ms = duration.as_millis();
-
-        tracing::debug!(
-            "SVG rasterization completed in {}ms (scale: {:?}, original: {}x{}, output: {}x{})",
-            duration_ms,
-            scale,
-            original_width,
-            original_height,
-            pixmap_width,
-            pixmap_height
-        );
-
-        if duration_ms > 1000 {
-            tracing::warn!(
-                "SVG rasterization took {}ms (>1000ms) (scale: {:?}, original: {}x{}, output: {}x{})",
-                duration_ms,
-                scale,
-                original_width,
-                original_height,
-                pixmap_width,
-                pixmap_height
-            );
-        }
 
         Ok(pixmap)
     }

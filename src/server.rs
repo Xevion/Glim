@@ -13,7 +13,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::time::timeout;
 use tracing::{info, instrument};
@@ -253,6 +253,9 @@ async fn handler(
     let (actual_repo_name, format) = parse_repo_name_and_format(&repo_name);
 
     let repo_path = format!("{}/{}", owner, actual_repo_name);
+
+    // Start GitHub API timing
+    let github_start = Instant::now();
     let repo = github::GITHUB_CLIENT
         .get_repository_info(&repo_path)
         .await
@@ -271,9 +274,17 @@ async fn handler(
                 }),
             )
         })?;
+    let github_api_duration = github_start.elapsed();
 
-    // Start timing for image generation
-    let start_time = std::time::Instant::now();
+    tracing::debug!(
+        owner = &owner,
+        repo = &actual_repo_name,
+        duration = ?github_api_duration,
+        "GitHub API request completed"
+    );
+
+    // Start overall image generation timing
+    let total_start = Instant::now();
 
     // Create SVG input data
     let svg_data = SvgInputData::new(
@@ -284,17 +295,26 @@ async fn handler(
         repo.forks_count.to_string(),
     );
 
-    // Format the SVG template
+    // Format the SVG template with timing
+    let svg_start = Instant::now();
     let formatted_svg = format_svg_template(&svg_data);
+    let svg_template_duration = svg_start.elapsed();
+
+    tracing::debug!(
+        owner = &owner,
+        repo = &actual_repo_name,
+        duration = ?svg_template_duration,
+        "SVG template rendered"
+    );
 
     // Parse scale parameter
     let scale = parse_scale_parameter(&query);
 
-    // Encode the image
+    // Encode the image with timing
     let mut buffer = Cursor::new(Vec::new());
     let encoder = crate::encode::create_encoder(format);
 
-    encoder
+    let encoding_timing = encoder
         .encode(&formatted_svg, &mut buffer, scale)
         .map_err(|e| {
             tracing::error!("Failed to generate image: {}", e);
@@ -308,29 +328,27 @@ async fn handler(
             )
         })?;
 
-    // Calculate timing
-    let duration = start_time.elapsed();
-    let duration_ms = duration.as_millis();
-
     tracing::debug!(
-        "Image generation completed in {}ms for {}/{} (format: {:?}, scale: {:?})",
-        duration_ms,
-        owner,
-        actual_repo_name,
-        format,
-        scale
+        owner = &owner,
+        repo = &actual_repo_name,
+        format = ?format,
+        scale = ?scale,
+        rasterization_duration = ?encoding_timing.rasterization,
+        encoding_duration = ?encoding_timing.encoding,
+        "Image encoding completed"
     );
 
-    if duration_ms > 1000 {
-        tracing::warn!(
-            "Image generation took {}ms (>1000ms) for {}/{} (format: {:?}, scale: {:?})",
-            duration_ms,
-            owner,
-            actual_repo_name,
-            format,
-            scale
-        );
-    }
+    // Calculate total timing and create breakdown
+    let total_duration = total_start.elapsed();
+    let mut timing = ImageGenerationTiming::new();
+    timing.github_api = github_api_duration;
+    timing.svg_template = svg_template_duration;
+    timing.rasterization = encoding_timing.rasterization;
+    timing.encoding = encoding_timing.encoding;
+    timing.total = total_duration;
+
+    // Log detailed timing breakdown
+    timing.log_timing_breakdown(&owner, &actual_repo_name, &format, scale);
 
     Ok((
         [(axum::http::header::CONTENT_TYPE, format.mime_type())],
@@ -402,8 +420,6 @@ fn parse_scale_parameter(query: &ImageQuery) -> Option<f64> {
 /// # Returns
 /// Formatted SVG string
 fn format_svg_template(data: &SvgInputData) -> String {
-    let start_time = std::time::Instant::now();
-
     let svg_template = include_str!("../card.svg");
     let wrapped_description = crate::image::wrap_text(&data.description, 65);
     let language_color =
@@ -412,32 +428,73 @@ fn format_svg_template(data: &SvgInputData) -> String {
     let formatted_stars = crate::image::format_count(&data.stars);
     let formatted_forks = crate::image::format_count(&data.forks);
 
-    let result = svg_template
+    svg_template
         .replace("{{name}}", &data.name)
         .replace("{{description}}", &wrapped_description)
         .replace("{{language}}", &data.language)
         .replace("{{language_color}}", &language_color)
         .replace("{{stars}}", &formatted_stars)
-        .replace("{{forks}}", &formatted_forks);
+        .replace("{{forks}}", &formatted_forks)
+}
 
-    let duration = start_time.elapsed();
-    let duration_ms = duration.as_millis();
+/// Detailed timing breakdown for image generation phases
+#[derive(Debug)]
+struct ImageGenerationTiming {
+    github_api: Duration,
+    svg_template: Duration,
+    rasterization: Duration,
+    encoding: Duration,
+    total: Duration,
+}
 
-    tracing::debug!(
-        "SVG template formatting completed in {}ms for repository: {}",
-        duration_ms,
-        data.name
-    );
-
-    if duration_ms > 1000 {
-        tracing::warn!(
-            "SVG template formatting took {}ms (>1000ms) for repository: {}",
-            duration_ms,
-            data.name
-        );
+impl ImageGenerationTiming {
+    fn new() -> Self {
+        Self {
+            github_api: Duration::ZERO,
+            svg_template: Duration::ZERO,
+            rasterization: Duration::ZERO,
+            encoding: Duration::ZERO,
+            total: Duration::ZERO,
+        }
     }
 
-    result
+    fn log_timing_breakdown(
+        &self,
+        owner: &str,
+        repo: &str,
+        format: &crate::encode::ImageFormat,
+        scale: Option<f64>,
+    ) {
+        let total_ms = self.total.as_millis();
+
+        tracing::debug!(
+            owner = owner,
+            repo = repo,
+            format = ?format,
+            scale = ?scale,
+            github_api_duration = ?self.github_api,
+            svg_template_duration = ?self.svg_template,
+            rasterization_duration = ?self.rasterization,
+            encoding_duration = ?self.encoding,
+            total_duration = ?self.total,
+            "Image generation completed"
+        );
+
+        if total_ms > 1000 {
+            tracing::warn!(
+                owner = owner,
+                repo = repo,
+                format = ?format,
+                scale = ?scale,
+                github_api_duration = ?self.github_api,
+                svg_template_duration = ?self.svg_template,
+                rasterization_duration = ?self.rasterization,
+                encoding_duration = ?self.encoding,
+                total_duration = ?self.total,
+                "Slow image generation"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

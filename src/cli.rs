@@ -115,23 +115,31 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     // Create encoder and encode
     let encoder = create_encoder(ImageFormat::Png);
-    encoder.encode(&formatted_svg, &mut writer, None)?;
+    let encoding_timing = encoder.encode(&formatted_svg, &mut writer, None)?;
 
     // Calculate timing
     let duration = start_time.elapsed();
     let duration_ms = duration.as_millis();
 
+    let svg_template_duration = duration - encoding_timing.total;
+
     tracing::debug!(
-        "CLI image generation completed in {}ms for {}",
-        duration_ms,
-        repo_path
+        repo_path = repo_path,
+        svg_template_duration = ?svg_template_duration,
+        rasterization_duration = ?encoding_timing.rasterization,
+        encoding_duration = ?encoding_timing.encoding,
+        total_duration = ?duration,
+        "CLI image generation completed"
     );
 
     if duration_ms > 1000 {
         tracing::warn!(
-            "CLI image generation took {}ms (>1000ms) for {}",
-            duration_ms,
-            repo_path
+            repo_path = repo_path,
+            svg_template_duration = ?svg_template_duration,
+            rasterization_duration = ?encoding_timing.rasterization,
+            encoding_duration = ?encoding_timing.encoding,
+            total_duration = ?duration,
+            "Slow CLI image generation"
         );
     }
 

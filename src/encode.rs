@@ -6,7 +6,26 @@
 use crate::errors::{GlimError, ImageError, Result};
 use image::{Rgba, RgbaImage};
 use std::io::Write;
+use std::time::Duration;
 use tracing::instrument;
+
+/// Timing information for encoding operations
+#[derive(Debug, Clone)]
+pub struct EncodingTiming {
+    pub rasterization: Duration,
+    pub encoding: Duration,
+    pub total: Duration,
+}
+
+impl EncodingTiming {
+    pub fn new() -> Self {
+        Self {
+            rasterization: Duration::ZERO,
+            encoding: Duration::ZERO,
+            total: Duration::ZERO,
+        }
+    }
+}
 
 /// Helper function to rasterize SVG and convert to RgbaImage.
 /// This eliminates code duplication across encoders.
@@ -88,8 +107,13 @@ pub trait Encoder {
     /// * `scale` - Optional scale factor for the image
     ///
     /// # Returns
-    /// Result indicating success or failure
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()>;
+    /// Result with timing information indicating success or failure
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming>;
 }
 
 /// PNG encoder using the resvg library.
@@ -108,11 +132,19 @@ impl PngEncoder {
 
 impl Encoder for PngEncoder {
     #[instrument(skip(self, writer, svg_data))]
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()> {
-        let start_time = std::time::Instant::now();
-
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
+        // Rasterization timing
+        let rasterize_start = std::time::Instant::now();
         let pixmap = self.rasterizer.render_with_scale(svg_data, scale)?;
+        let rasterize_duration = rasterize_start.elapsed();
 
+        // PNG encoding timing
+        let encode_start = std::time::Instant::now();
         let mut png_encoder = png::Encoder::new(writer, pixmap.width(), pixmap.height());
         png_encoder.set_color(png::ColorType::Rgba);
         png_encoder.set_depth(png::BitDepth::Eight);
@@ -128,24 +160,37 @@ impl Encoder for PngEncoder {
         png_writer
             .finish()
             .map_err(|e| GlimError::Image(ImageError::PngWrite(e.to_string())))?;
+        let encode_duration = encode_start.elapsed();
 
-        let duration = start_time.elapsed();
+        let total_duration = rasterize_duration + encode_duration;
 
         tracing::debug!(
-            "PNG encoding completed in {duration:?} (scale: {scale:?}, size: {width}x{height})",
+            scale = ?scale,
             width = pixmap.width(),
-            height = pixmap.height()
+            height = pixmap.height(),
+            rasterization_duration = ?rasterize_duration,
+            encoding_duration = ?encode_duration,
+            total_duration = ?total_duration,
+            "PNG encoding completed"
         );
 
-        if duration.as_millis() > 1000 {
+        if total_duration.as_millis() > 1000 {
             tracing::warn!(
-                "PNG encoding took {duration:?} (>1000ms) (scale: {scale:?}, size: {width}x{height})",
+                scale = ?scale,
                 width = pixmap.width(),
-                height = pixmap.height()
+                height = pixmap.height(),
+                rasterization_duration = ?rasterize_duration,
+                encoding_duration = ?encode_duration,
+                total_duration = ?total_duration,
+                "Slow PNG encoding"
             );
         }
 
-        Ok(())
+        Ok(EncodingTiming {
+            rasterization: rasterize_duration,
+            encoding: encode_duration,
+            total: total_duration,
+        })
     }
 }
 
@@ -161,14 +206,27 @@ impl WebPEncoder {
 
 impl Encoder for WebPEncoder {
     #[instrument(skip(writer, svg_data))]
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
+        let rasterize_start = std::time::Instant::now();
         let img = rasterize_svg_to_rgba(&crate::image::Rasterizer::new(), svg_data, scale)?;
+        let rasterize_duration = rasterize_start.elapsed();
 
+        let encode_start = std::time::Instant::now();
         // Encode as WebP
         img.write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(writer))
             .map_err(|e| GlimError::Image(ImageError::WebPWrite(e.to_string())))?;
+        let encode_duration = encode_start.elapsed();
 
-        Ok(())
+        Ok(EncodingTiming {
+            rasterization: rasterize_duration,
+            encoding: encode_duration,
+            total: rasterize_duration + encode_duration,
+        })
     }
 }
 
@@ -184,9 +242,17 @@ impl JpegEncoder {
 
 impl Encoder for JpegEncoder {
     #[instrument(skip(writer, svg_data))]
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
+        let rasterize_start = std::time::Instant::now();
         let img = rasterize_svg_to_rgba(&crate::image::Rasterizer::new(), svg_data, scale)?;
+        let rasterize_duration = rasterize_start.elapsed();
 
+        let encode_start = std::time::Instant::now();
         // Convert RGBA to RGB for JPEG encoding
         let rgb_img = image::DynamicImage::ImageRgba8(img).into_rgb8();
 
@@ -194,8 +260,13 @@ impl Encoder for JpegEncoder {
         rgb_img
             .write_with_encoder(image::codecs::jpeg::JpegEncoder::new(writer))
             .map_err(|e| GlimError::Image(ImageError::JpegWrite(e.to_string())))?;
+        let encode_duration = encode_start.elapsed();
 
-        Ok(())
+        Ok(EncodingTiming {
+            rasterization: rasterize_duration,
+            encoding: encode_duration,
+            total: rasterize_duration + encode_duration,
+        })
     }
 }
 
@@ -211,12 +282,23 @@ impl SvgEncoder {
 
 impl Encoder for SvgEncoder {
     #[instrument(skip(writer, svg_data))]
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, _scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        _scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
+        let encode_start = std::time::Instant::now();
         writer
             .write_all(svg_data.as_bytes())
             .map_err(|e| GlimError::Image(ImageError::SvgWrite(e.to_string())))?;
+        let encode_duration = encode_start.elapsed();
 
-        Ok(())
+        Ok(EncodingTiming {
+            rasterization: Duration::ZERO,
+            encoding: encode_duration,
+            total: encode_duration,
+        })
     }
 }
 
@@ -232,16 +314,29 @@ impl AvifEncoder {
 
 impl Encoder for AvifEncoder {
     #[instrument(skip(writer, svg_data))]
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
+        let rasterize_start = std::time::Instant::now();
         let img = rasterize_svg_to_rgba(&crate::image::Rasterizer::new(), svg_data, scale)?;
+        let rasterize_duration = rasterize_start.elapsed();
 
+        let encode_start = std::time::Instant::now();
         // Encode as AVIF with maximum speed settings (speed 10, quality 60)
         img.write_with_encoder(image::codecs::avif::AvifEncoder::new_with_speed_quality(
             writer, 10, 60,
         ))
         .map_err(|e| GlimError::Image(ImageError::AvifWrite(e.to_string())))?;
+        let encode_duration = encode_start.elapsed();
 
-        Ok(())
+        Ok(EncodingTiming {
+            rasterization: rasterize_duration,
+            encoding: encode_duration,
+            total: rasterize_duration + encode_duration,
+        })
     }
 }
 
@@ -258,7 +353,12 @@ impl GifEncoder {
 
 impl Encoder for GifEncoder {
     #[instrument(skip(_svg_data, _writer))]
-    fn encode(&self, _svg_data: &str, _writer: &mut dyn Write, _scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        _svg_data: &str,
+        _writer: &mut dyn Write,
+        _scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
         // GIF encoding is not currently supported
         Err(GlimError::Image(ImageError::GifWrite(
             "GIF encoding is not implemented".to_string(),
@@ -278,9 +378,17 @@ impl IcoEncoder {
 
 impl Encoder for IcoEncoder {
     #[instrument(skip(writer, svg_data))]
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
+        let rasterize_start = std::time::Instant::now();
         let img = rasterize_svg_to_rgba(&crate::image::Rasterizer::new(), svg_data, scale)?;
+        let rasterize_duration = rasterize_start.elapsed();
 
+        let encode_start = std::time::Instant::now();
         // Resize image to fit ICO requirements (max 256x256)
         let width = img.width();
         let height = img.height();
@@ -302,8 +410,13 @@ impl Encoder for IcoEncoder {
         resized_img
             .write_with_encoder(image::codecs::ico::IcoEncoder::new(writer))
             .map_err(|e| GlimError::Image(ImageError::IcoWrite(e.to_string())))?;
+        let encode_duration = encode_start.elapsed();
 
-        Ok(())
+        Ok(EncodingTiming {
+            rasterization: rasterize_duration,
+            encoding: encode_duration,
+            total: rasterize_duration + encode_duration,
+        })
     }
 }
 
@@ -320,7 +433,12 @@ pub enum EncoderType {
 }
 
 impl Encoder for EncoderType {
-    fn encode(&self, svg_data: &str, writer: &mut dyn Write, scale: Option<f64>) -> Result<()> {
+    fn encode(
+        &self,
+        svg_data: &str,
+        writer: &mut dyn Write,
+        scale: Option<f64>,
+    ) -> Result<EncodingTiming> {
         match self {
             EncoderType::Png(encoder) => encoder.encode(svg_data, writer, scale),
             EncoderType::WebP(encoder) => encoder.encode(svg_data, writer, scale),

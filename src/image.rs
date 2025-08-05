@@ -3,11 +3,12 @@
 //! This module handles SVG template processing and multi-format encoding
 //! to create beautiful repository cards with dynamic content.
 
-use crate::encode::{self, ImageFormat};
 use crate::errors::{ImageError, LivecardsError, Result};
 use resvg::{tiny_skia, usvg};
-use std::io::Write;
 use tracing::instrument;
+
+// Re-export ImageFormat for public use
+pub use crate::encode::ImageFormat;
 
 /// SVG to PNG rasterizer with font support.
 #[derive(Debug)]
@@ -70,8 +71,19 @@ impl Rasterizer {
         Self { font_db: fontdb }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, svg_data))]
     pub fn render(&self, svg_data: &str) -> Result<tiny_skia::Pixmap> {
+        self.render_with_scale(svg_data, Some(1.0))
+    }
+
+    #[instrument(skip(self, svg_data))]
+    pub fn render_with_scale(
+        &self,
+        svg_data: &str,
+        scale: Option<f64>,
+    ) -> Result<tiny_skia::Pixmap> {
+        let start_time = std::time::Instant::now();
+
         let options = usvg::Options {
             fontdb: std::sync::Arc::new(self.font_db.clone()),
             ..Default::default()
@@ -80,20 +92,63 @@ impl Rasterizer {
         let tree = usvg::Tree::from_str(svg_data, &options)
             .map_err(|e| LivecardsError::Image(ImageError::SvgRendering(e.to_string())))?;
 
-        let pixmap_size = tree.size().to_int_size();
-        let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())
-            .ok_or_else(|| LivecardsError::Image(ImageError::PixmapCreation))?;
+        // Get the original SVG dimensions
+        let original_size = tree.size().to_int_size();
+        let original_width = original_size.width() as f32;
+        let original_height = original_size.height() as f32;
 
-        let (width, height) = (pixmap_size.width() as f32, pixmap_size.height() as f32);
-        let (center_x, center_y) = (width / 2.0, height / 2.0);
+        // Apply scale factor (minimum 0.1 = 10%)
+        let scale_factor = scale.unwrap_or(1.0).max(0.1) as f32;
 
-        // Create transform that scales from center: translate to center, scale, translate back
-        let zoom = 0.90; // 10% zoom out from center
-        let render_ts = tiny_skia::Transform::from_translate(-center_x, -center_y)
-            .post_scale(zoom, zoom)
-            .post_translate(center_x, center_y);
+        // Calculate new dimensions with padding that scales with scale factor
+        let base_padding = 20.0; // Base padding in pixels
+        let padding = (base_padding * scale_factor).min(20.0); // Scale padding but cap at 20px
+        let new_width = (original_width * scale_factor) + (2.0 * padding);
+        let new_height = (original_height * scale_factor) + (2.0 * padding);
+
+        let pixmap_width = new_width as u32;
+        let pixmap_height = new_height as u32;
+
+        let mut pixmap = tiny_skia::Pixmap::new(pixmap_width, pixmap_height).ok_or_else(|| {
+            LivecardsError::Image(ImageError::PixmapCreation(
+                "Failed to create pixmap".to_string(),
+            ))
+        })?;
+
+        // Calculate the transform to center the scaled content with padding
+        let content_scale = scale_factor;
+        let translate_x = padding;
+        let translate_y = padding;
+
+        let render_ts = tiny_skia::Transform::from_translate(translate_x, translate_y)
+            .pre_scale(content_scale, content_scale);
 
         resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+
+        let duration = start_time.elapsed();
+        let duration_ms = duration.as_millis();
+
+        tracing::debug!(
+            "SVG rasterization completed in {}ms (scale: {:?}, original: {}x{}, output: {}x{})",
+            duration_ms,
+            scale,
+            original_width,
+            original_height,
+            pixmap_width,
+            pixmap_height
+        );
+
+        if duration_ms > 1000 {
+            tracing::warn!(
+                "SVG rasterization took {}ms (>1000ms) (scale: {:?}, original: {}x{}, output: {}x{})",
+                duration_ms,
+                scale,
+                original_width,
+                original_height,
+                pixmap_width,
+                pixmap_height
+            );
+        }
 
         Ok(pixmap)
     }
@@ -123,64 +178,6 @@ pub fn parse_extension(extension: &str) -> Option<ImageFormat> {
         "ico" => Some(ImageFormat::Ico),
         _ => None,
     }
-}
-
-/// Generates a repository card image in the specified format.
-///
-/// # Arguments
-/// * `name` - Repository name
-/// * `description` - Repository description
-/// * `language` - Primary programming language
-/// * `stars` - Star count as string
-/// * `forks` - Fork count as string
-/// * `format` - Target image format
-/// * `writer` - Output writer for the encoded data
-///
-/// # Returns
-/// Result indicating success or failure
-#[instrument(skip(writer))]
-pub fn generate_image_with_format<W: Write>(
-    name: &str,
-    description: &str,
-    language: &str,
-    stars: &str,
-    forks: &str,
-    format: ImageFormat,
-    writer: W,
-) -> Result<()> {
-    encode::generate_image(name, description, language, stars, forks, format, writer)
-}
-
-/// Generates a PNG repository card image (legacy function for backward compatibility).
-///
-/// # Arguments
-/// * `name` - Repository name
-/// * `description` - Repository description
-/// * `language` - Primary programming language
-/// * `stars` - Star count as string
-/// * `forks` - Fork count as string
-/// * `writer` - Output writer for PNG data
-///
-/// # Returns
-/// Result indicating success or failure
-#[instrument(skip(writer))]
-pub fn generate_image<W: Write>(
-    name: &str,
-    description: &str,
-    language: &str,
-    stars: &str,
-    forks: &str,
-    writer: W,
-) -> Result<()> {
-    generate_image_with_format(
-        name,
-        description,
-        language,
-        stars,
-        forks,
-        ImageFormat::Png,
-        writer,
-    )
 }
 
 /// Formats a number string to show thousands with "k" suffix.

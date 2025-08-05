@@ -9,7 +9,10 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 use tracing::Level;
 
-use crate::{github, image};
+use crate::{
+    encode::{create_encoder, Encoder, ImageFormat},
+    github,
+};
 
 /// Command-line arguments for livecards.
 #[derive(Parser)]
@@ -41,6 +44,41 @@ pub struct Cli {
     pub log_level: Level,
 }
 
+/// Formats the SVG template with repository data.
+///
+/// # Arguments
+/// * `name` - Repository name
+/// * `description` - Repository description
+/// * `language` - Primary programming language
+/// * `stars` - Star count as string
+/// * `forks` - Fork count as string
+///
+/// # Returns
+/// Formatted SVG string
+fn format_svg_template(
+    name: &str,
+    description: &str,
+    language: &str,
+    stars: &str,
+    forks: &str,
+) -> String {
+    let svg_template = include_str!("../card.svg");
+    let wrapped_description = crate::image::wrap_text(description, 65);
+    let language_color =
+        crate::colors::get_color(language).unwrap_or_else(|| "#f1e05a".to_string());
+
+    let formatted_stars = crate::image::format_count(stars);
+    let formatted_forks = crate::image::format_count(forks);
+
+    svg_template
+        .replace("{{name}}", name)
+        .replace("{{description}}", &wrapped_description)
+        .replace("{{language}}", language)
+        .replace("{{language_color}}", &language_color)
+        .replace("{{stars}}", &formatted_stars)
+        .replace("{{forks}}", &formatted_forks)
+}
+
 /// Executes the CLI command to generate a repository card.
 ///
 /// # Arguments
@@ -61,16 +99,41 @@ pub async fn run(cli: Cli) -> Result<()> {
     };
 
     let file = File::create(&output_path)?;
-    let writer = BufWriter::new(file);
+    let mut writer = BufWriter::new(file);
 
-    image::generate_image(
+    // Start timing for image generation
+    let start_time = std::time::Instant::now();
+
+    // Format the SVG template
+    let formatted_svg = format_svg_template(
         &repo.name,
         &repo.description.unwrap_or_default(),
         &repo.language.unwrap_or_default(),
         &repo.stargazers_count.to_string(),
         &repo.forks_count.to_string(),
-        writer,
-    )?;
+    );
+
+    // Create encoder and encode
+    let encoder = create_encoder(ImageFormat::Png);
+    encoder.encode(&formatted_svg, &mut writer, None)?;
+
+    // Calculate timing
+    let duration = start_time.elapsed();
+    let duration_ms = duration.as_millis();
+
+    tracing::debug!(
+        "CLI image generation completed in {}ms for {}",
+        duration_ms,
+        repo_path
+    );
+
+    if duration_ms > 1000 {
+        tracing::warn!(
+            "CLI image generation took {}ms (>1000ms) for {}",
+            duration_ms,
+            repo_path
+        );
+    }
 
     tracing::info!("Successfully generated {}.", output_path.to_string_lossy());
 

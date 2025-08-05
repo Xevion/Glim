@@ -2,15 +2,15 @@
 //!
 //! Provides a web API endpoint for generating PNG cards dynamically with rate limiting.
 
-use crate::errors::{LivecardsError, ServerError};
 use axum::{
-    extract::{ConnectInfo, Path, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
     Router,
 };
+use serde::Deserialize;
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -19,10 +19,48 @@ use tokio::time::timeout;
 use tracing::{info, instrument};
 
 use crate::{
+    encode::Encoder,
     github, image,
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
 use std::path::Path as StdPath;
+
+/// SVG input data for repository cards
+#[derive(Debug, Clone)]
+struct SvgInputData {
+    name: String,
+    description: String,
+    language: String,
+    stars: String,
+    forks: String,
+}
+
+impl SvgInputData {
+    fn new(
+        name: String,
+        description: String,
+        language: String,
+        stars: String,
+        forks: String,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            language,
+            stars,
+            forks,
+        }
+    }
+}
+
+/// Query parameters for image generation
+#[derive(Debug, Deserialize)]
+struct ImageQuery {
+    #[serde(rename = "scale")]
+    scale: Option<String>,
+    #[serde(rename = "s")]
+    s: Option<String>,
+}
 
 /// Application state containing the rate limiter
 #[derive(Clone, Debug)]
@@ -170,6 +208,7 @@ async fn health_handler() -> Response {
 /// Returns: Image in the requested format (PNG by default)
 async fn handler(
     Path((owner, repo_name)): Path<(String, String)>,
+    Query(query): Query<ImageQuery>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
 ) -> Result<Response, StatusCode> {
@@ -199,21 +238,58 @@ async fn handler(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let mut buffer = Cursor::new(Vec::new());
+    // Start timing for image generation
+    let start_time = std::time::Instant::now();
 
-    image::generate_image_with_format(
-        &repo.name,
-        &repo.description.unwrap_or_default(),
-        &repo.language.unwrap_or_default(),
-        &repo.stargazers_count.to_string(),
-        &repo.forks_count.to_string(),
+    // Create SVG input data
+    let svg_data = SvgInputData::new(
+        repo.name,
+        repo.description.unwrap_or_default(),
+        repo.language.unwrap_or_default(),
+        repo.stargazers_count.to_string(),
+        repo.forks_count.to_string(),
+    );
+
+    // Format the SVG template
+    let formatted_svg = format_svg_template(&svg_data);
+
+    // Parse scale parameter
+    let scale = parse_scale_parameter(&query);
+
+    // Encode the image
+    let mut buffer = Cursor::new(Vec::new());
+    let encoder = crate::encode::create_encoder(format);
+
+    encoder
+        .encode(&formatted_svg, &mut buffer, scale)
+        .map_err(|e| {
+            tracing::error!("Failed to generate image: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Calculate timing
+    let duration = start_time.elapsed();
+    let duration_ms = duration.as_millis();
+
+    tracing::debug!(
+        "Image generation completed in {}ms for {}/{} (format: {:?}, scale: {:?})",
+        duration_ms,
+        owner,
+        actual_repo_name,
         format,
-        &mut buffer,
-    )
-    .map_err(|e| {
-        tracing::error!("Failed to generate image: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        scale
+    );
+
+    if duration_ms > 1000 {
+        tracing::warn!(
+            "Image generation took {}ms (>1000ms) for {}/{} (format: {:?}, scale: {:?})",
+            duration_ms,
+            owner,
+            actual_repo_name,
+            format,
+            scale
+        );
+    }
 
     Ok((
         [(axum::http::header::CONTENT_TYPE, format.mime_type())],
@@ -244,4 +320,157 @@ fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::ImageF
 
     // No valid extension found, use PNG as default
     (repo_name.to_string(), crate::encode::ImageFormat::Png)
+}
+
+/// Parses the scale parameter from query parameters.
+///
+/// # Arguments
+/// * `query` - The query parameters
+///
+/// # Returns
+/// Optional scale factor (None if not provided or invalid)
+fn parse_scale_parameter(query: &ImageQuery) -> Option<f64> {
+    // Try 'scale' parameter first, then fallback to 's'
+    let scale_str = query.scale.as_deref().or(query.s.as_deref())?;
+
+    // Ignore if length is greater than 4 characters after trimming trailing zeros
+    let trimmed = scale_str.trim_end_matches('0');
+    if trimmed.len() > 4 {
+        return None;
+    }
+
+    // Parse as f64
+    let scale = scale_str.parse::<f64>().ok()?;
+
+    // In release configurations, set a max of 3.5
+    #[cfg(not(debug_assertions))]
+    {
+        if scale > 3.5 {
+            return None;
+        }
+    }
+
+    // Ensure minimum scale of 0.1 (10%)
+    if scale < 0.1 {
+        return None;
+    }
+
+    Some(scale)
+}
+
+/// Formats the SVG template with repository data.
+///
+/// # Arguments
+/// * `data` - The SVG input data containing repository information
+///
+/// # Returns
+/// Formatted SVG string
+fn format_svg_template(data: &SvgInputData) -> String {
+    let start_time = std::time::Instant::now();
+
+    let svg_template = include_str!("../card.svg");
+    let wrapped_description = crate::image::wrap_text(&data.description, 65);
+    let language_color =
+        crate::colors::get_color(&data.language).unwrap_or_else(|| "#f1e05a".to_string());
+
+    let formatted_stars = crate::image::format_count(&data.stars);
+    let formatted_forks = crate::image::format_count(&data.forks);
+
+    let result = svg_template
+        .replace("{{name}}", &data.name)
+        .replace("{{description}}", &wrapped_description)
+        .replace("{{language}}", &data.language)
+        .replace("{{language_color}}", &language_color)
+        .replace("{{stars}}", &formatted_stars)
+        .replace("{{forks}}", &formatted_forks);
+
+    let duration = start_time.elapsed();
+    let duration_ms = duration.as_millis();
+
+    tracing::debug!(
+        "SVG template formatting completed in {}ms for repository: {}",
+        duration_ms,
+        data.name
+    );
+
+    if duration_ms > 1000 {
+        tracing::warn!(
+            "SVG template formatting took {}ms (>1000ms) for repository: {}",
+            duration_ms,
+            data.name
+        );
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_scale_parameter() {
+        // Test valid scale parameters
+        let query = ImageQuery {
+            scale: Some("1.5".to_string()),
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), Some(1.5));
+
+        let query = ImageQuery {
+            scale: None,
+            s: Some("2.0".to_string()),
+        };
+        assert_eq!(parse_scale_parameter(&query), Some(2.0));
+
+        // Test fallback from scale to s
+        let query = ImageQuery {
+            scale: None,
+            s: Some("1.2".to_string()),
+        };
+        assert_eq!(parse_scale_parameter(&query), Some(1.2));
+
+        // Test invalid parameters
+        let query = ImageQuery {
+            scale: Some("0.05".to_string()), // Below minimum
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), None);
+
+        let query = ImageQuery {
+            scale: Some("12345".to_string()), // Too long after trimming
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), None);
+
+        let query = ImageQuery {
+            scale: Some("abc".to_string()), // Invalid number
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), None);
+
+        // Test no parameters
+        let query = ImageQuery {
+            scale: None,
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), None);
+    }
+
+    #[test]
+    fn test_scale_parameter_length_validation() {
+        // Test that trailing zeros are trimmed correctly
+        let query = ImageQuery {
+            scale: Some("1.2000".to_string()),
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), Some(1.2));
+
+        // Test that long strings are rejected
+        let query = ImageQuery {
+            scale: Some("1.2345".to_string()),
+            s: None,
+        };
+        assert_eq!(parse_scale_parameter(&query), None);
+    }
 }

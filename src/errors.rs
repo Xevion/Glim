@@ -74,8 +74,8 @@ pub enum GitHubError {
 #[derive(Error, Debug)]
 pub enum ImageError {
     /// Failed to create pixmap
-    #[error("Failed to create pixmap")]
-    PixmapCreation,
+    #[error("Failed to create pixmap: {0}")]
+    PixmapCreation(String),
 
     /// Failed to render SVG
     #[error("Failed to render SVG: {0}")]

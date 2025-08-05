@@ -376,27 +376,21 @@ fn parse_scale_parameter(query: &ImageQuery) -> Option<f64> {
 
     // Ignore if length is greater than 4 characters after trimming trailing zeros
     let trimmed = scale_str.trim_end_matches('0');
-    if trimmed.len() > 4 {
+    if trimmed.len() > 10 {
         return None;
     }
 
-    // Parse as f64
-    let scale = scale_str.parse::<f64>().ok()?;
-
-    // In release configurations, set a max of 3.5
-    #[cfg(not(debug_assertions))]
-    {
-        if scale > 3.5 {
-            return None;
+    // Parse as f64, clamp between 0.1 and 3.5 in release, 0.1 and 100.0 in debug
+    Some(scale_str.parse::<f64>().ok()?.clamp(0.1, {
+        #[cfg(not(debug_assertions))]
+        {
+            3.5
         }
-    }
-
-    // Ensure minimum scale of 0.1 (10%)
-    if scale < 0.1 {
-        return None;
-    }
-
-    Some(scale)
+        #[cfg(debug_assertions)]
+        {
+            100.0
+        }
+    }))
 }
 
 /// Formats the SVG template with repository data.
@@ -473,13 +467,13 @@ mod tests {
 
         // Test invalid parameters
         let query = ImageQuery {
-            scale: Some("0.05".to_string()), // Below minimum
+            scale: Some("0.05".to_string()), // Below minimum - gets clamped to 0.1
             s: None,
         };
-        assert_eq!(parse_scale_parameter(&query), None);
+        assert_eq!(parse_scale_parameter(&query), Some(0.1));
 
         let query = ImageQuery {
-            scale: Some("12345".to_string()), // Too long after trimming
+            scale: Some("12345678901".to_string()), // Too long after trimming (>10 chars)
             s: None,
         };
         assert_eq!(parse_scale_parameter(&query), None);
@@ -507,9 +501,9 @@ mod tests {
         };
         assert_eq!(parse_scale_parameter(&query), Some(1.2));
 
-        // Test that long strings are rejected
+        // Test that long strings are rejected (>10 chars after trimming)
         let query = ImageQuery {
-            scale: Some("1.2345".to_string()),
+            scale: Some("1.2345678901".to_string()),
             s: None,
         };
         assert_eq!(parse_scale_parameter(&query), None);

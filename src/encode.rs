@@ -130,23 +130,18 @@ impl Encoder for PngEncoder {
             .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
 
         let duration = start_time.elapsed();
-        let duration_ms = duration.as_millis();
 
         tracing::debug!(
-            "PNG encoding completed in {}ms (scale: {:?}, size: {}x{})",
-            duration_ms,
-            scale,
-            pixmap.width(),
-            pixmap.height()
+            "PNG encoding completed in {duration:?} (scale: {scale:?}, size: {width}x{height})",
+            width = pixmap.width(),
+            height = pixmap.height()
         );
 
-        if duration_ms > 1000 {
+        if duration.as_millis() > 1000 {
             tracing::warn!(
-                "PNG encoding took {}ms (>1000ms) (scale: {:?}, size: {}x{})",
-                duration_ms,
-                scale,
-                pixmap.width(),
-                pixmap.height()
+                "PNG encoding took {duration:?} (>1000ms) (scale: {scale:?}, size: {width}x{height})",
+                width = pixmap.width(),
+                height = pixmap.height()
             );
         }
 

@@ -8,9 +8,9 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -24,6 +24,14 @@ use crate::{
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
 use std::path::Path as StdPath;
+
+/// Error response structure for JSON error responses
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    error: String,
+    message: String,
+    status: u16,
+}
 
 /// SVG input data for repository cards
 #[derive(Debug, Clone)]
@@ -211,7 +219,7 @@ async fn handler(
     Query(query): Query<ImageQuery>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<AppState>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let client_ip = addr.ip();
 
     // Check rate limit
@@ -220,10 +228,24 @@ async fn handler(
             // Continue with request processing
         }
         RateLimitResult::GlobalLimitExceeded => {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ErrorResponse {
+                    error: "rate_limit_exceeded".to_string(),
+                    message: "Global rate limit exceeded".to_string(),
+                    status: 429,
+                }),
+            ));
         }
         RateLimitResult::IpLimitExceeded => {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ErrorResponse {
+                    error: "rate_limit_exceeded".to_string(),
+                    message: "IP rate limit exceeded".to_string(),
+                    status: 429,
+                }),
+            ));
         }
     }
 
@@ -235,7 +257,18 @@ async fn handler(
         .await
         .map_err(|e| {
             tracing::error!("Failed to get repository info: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            let status_code = match &e {
+                crate::errors::LivecardsError::GitHub(github_error) => github_error.clone().into(),
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (
+                status_code,
+                Json(ErrorResponse {
+                    error: "repository_error".to_string(),
+                    message: format!("Failed to get repository info: {}", e),
+                    status: status_code.as_u16(),
+                }),
+            )
         })?;
 
     // Start timing for image generation
@@ -264,7 +297,14 @@ async fn handler(
         .encode(&formatted_svg, &mut buffer, scale)
         .map_err(|e| {
             tracing::error!("Failed to generate image: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "image_generation_error".to_string(),
+                    message: format!("Failed to generate image: {}", e),
+                    status: 500,
+                }),
+            )
         })?;
 
     // Calculate timing
@@ -305,7 +345,7 @@ async fn handler(
 ///
 /// # Returns
 /// Tuple of (actual_repo_name, format)
-fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::ImageFormat) {
+pub fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::ImageFormat) {
     let path = StdPath::new(repo_name);
 
     if let Some(extension) = path.extension() {
@@ -318,7 +358,8 @@ fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::ImageF
         }
     }
 
-    // No valid extension found, use PNG as default
+    // No valid extension found or unsupported extension - treat as part of repo name
+    // This allows repositories like "vercel/next.js" to work normally
     (repo_name.to_string(), crate::encode::ImageFormat::Png)
 }
 

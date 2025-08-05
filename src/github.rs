@@ -1,13 +1,12 @@
-//! GitHub API client with caching support.
-//!
-//! This module handles fetching repository information from the GitHub API
-//! with intelligent caching to minimize API calls and handle rate limits.
+//! GitHub API client with intelligent caching and error handling.
 
-use crate::errors::{GitHubError, Result};
+use crate::errors::{self, GitHubError, Result};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
+use reqwest::Client;
 use serde::Deserialize;
 use std::env;
+
 use std::time::Duration;
 use tracing::{debug, info, instrument};
 
@@ -26,13 +25,15 @@ pub struct Repository {
     pub forks_count: u32,
 }
 
-/// Cache entry type for tracking both successful and failed requests.
+/// Cache entry for tracking successful and failed requests.
 #[derive(Clone, Debug)]
 pub enum CacheEntry {
-    /// Valid repository data
+    /// Successfully fetched repository data (cached for 30 minutes)
     Valid(Repository),
-    /// Invalid request with error type and retry count
-    Invalid(crate::errors::GitHubError, u8),
+    /// Failed request with retry counter (up to 3 attempts)
+    Invalid(errors::GitHubError, u8),
+    /// Permanently failed request with original error preserved
+    InvalidExhausted(errors::GitHubError),
 }
 
 /// Global cache for repository data with 30-minute TTL.
@@ -42,6 +43,17 @@ static CACHE: Lazy<Cache<String, CacheEntry>> = Lazy::new(|| {
         .build()
 });
 
+/// Shared HTTP client for GitHub API requests.
+static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
+    Client::builder()
+        .user_agent("livecards-generator")
+        .build()
+        .expect("Failed to create HTTP client")
+});
+
+/// GitHub API base URL.
+const GITHUB_API_BASE: &str = "https://api.github.com/repos/";
+
 /// Fetches repository information from GitHub API with caching.
 ///
 /// # Arguments
@@ -50,56 +62,55 @@ static CACHE: Lazy<Cache<String, CacheEntry>> = Lazy::new(|| {
 ///
 /// # Returns
 /// Repository information or specific error type
+///
+/// # Caching Strategy
+/// - Valid entries: Return immediately (30 min TTL)
+/// - InvalidExhausted entries: Return original error immediately
+/// - Invalid entries (count < 3): Retry API call, increment counter
+/// - 404 errors: Immediately cache as InvalidExhausted (no retries)
+/// - Other errors: Retry up to 3 times before exhaustion
 #[instrument(skip(token))]
 pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Result<Repository> {
-    let repo_path_string = repo_path.to_string();
-
-    if let Some(entry) = CACHE.get(&repo_path_string).await {
+    // Check cache for existing entry (avoid string allocation if cache hit)
+    if let Some(entry) = CACHE.get(repo_path).await {
         match entry {
             CacheEntry::Valid(repo) => {
                 debug!("Cache hit for {}", repo_path);
                 return Ok(repo);
             }
-            CacheEntry::Invalid(error, count) if count >= 3 => {
+            CacheEntry::InvalidExhausted(error) => {
                 info!(
                     "Cache hit for invalid repo {} (retries exhausted)",
                     repo_path
                 );
-                return Err(crate::errors::LivecardsError::GitHub(error));
+                return Err(errors::LivecardsError::GitHub(error));
             }
+            // Invalid entry with count < 3: continue to API call
             _ => {}
         }
     }
 
     info!("Cache miss for {}", repo_path);
 
-    let token = token.or_else(|| env::var("GITHUB_TOKEN").ok());
-    let repo_url = format!("https://api.github.com/repos/{}", repo_path);
+    // Build request with minimal allocations
+    let mut request = HTTP_CLIENT.get(format!("{}{}", GITHUB_API_BASE, repo_path));
 
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(token) = token {
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
+    // Add authorization header if token is available
+    if let Some(token) = token.or_else(|| env::var("GITHUB_TOKEN").ok()) {
+        request = request.header("Authorization", format!("Bearer {}", token));
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("livecards-generator")
-        .default_headers(headers)
-        .build()
-        .map_err(|_| crate::errors::LivecardsError::GitHub(GitHubError::NetworkError))?;
-
-    match client.get(&repo_url).send().await {
+    match request.send().await {
         Ok(response) => {
             let status = response.status();
             if status.is_success() {
-                let repo: Repository = response.json().await.map_err(|_| {
-                    crate::errors::LivecardsError::GitHub(GitHubError::NetworkError)
-                })?;
+                let repo: Repository = response
+                    .json()
+                    .await
+                    .map_err(|_| errors::LivecardsError::GitHub(GitHubError::NetworkError))?;
                 debug!("Fetched repo info for {}", repo_path);
                 CACHE
-                    .insert(repo_path_string, CacheEntry::Valid(repo.clone()))
+                    .insert(repo_path.to_string(), CacheEntry::Valid(repo.clone()))
                     .await;
                 Ok(repo)
             } else {
@@ -109,47 +120,69 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
                     code => GitHubError::ApiError(code),
                 };
 
-                let old_count = if let Some(CacheEntry::Invalid(_, count)) =
-                    CACHE.get(&repo_path_string).await
-                {
-                    count
-                } else {
-                    0
-                };
+                // 404 errors are immediately exhausted (no retries for non-existent repos)
+                if status.as_u16() == 404 {
+                    info!(
+                        "Repository not found: {} (immediately exhausted)",
+                        repo_path
+                    );
+                    CACHE
+                        .insert(
+                            repo_path.to_string(),
+                            CacheEntry::InvalidExhausted(error.clone()),
+                        )
+                        .await;
+                    return Err(errors::LivecardsError::GitHub(error));
+                }
+
+                // Increment retry count for other errors
+                let old_count =
+                    if let Some(CacheEntry::Invalid(_, count)) = CACHE.get(repo_path).await {
+                        count
+                    } else {
+                        0
+                    };
                 let new_count = old_count + 1;
+
                 info!(
                     "Failed to fetch repo info for {}, attempt {}, status: {}",
                     repo_path, new_count, status
                 );
-                CACHE
-                    .insert(
-                        repo_path_string,
-                        CacheEntry::Invalid(error.clone(), new_count),
-                    )
-                    .await;
-                Err(crate::errors::LivecardsError::GitHub(error))
+
+                // Exhaust after 3 attempts, otherwise increment counter
+                let cache_entry = if new_count >= 3 {
+                    CacheEntry::InvalidExhausted(error.clone())
+                } else {
+                    CacheEntry::Invalid(error.clone(), new_count)
+                };
+
+                CACHE.insert(repo_path.to_string(), cache_entry).await;
+                Err(errors::LivecardsError::GitHub(error))
             }
         }
         Err(_) => {
             let error = GitHubError::NetworkError;
-            let old_count =
-                if let Some(CacheEntry::Invalid(_, count)) = CACHE.get(&repo_path_string).await {
-                    count
-                } else {
-                    0
-                };
+            let old_count = if let Some(CacheEntry::Invalid(_, count)) = CACHE.get(repo_path).await
+            {
+                count
+            } else {
+                0
+            };
             let new_count = old_count + 1;
             info!(
                 "Network error for repo {}, attempt {}",
                 repo_path, new_count
             );
-            CACHE
-                .insert(
-                    repo_path_string,
-                    CacheEntry::Invalid(error.clone(), new_count),
-                )
-                .await;
-            Err(crate::errors::LivecardsError::GitHub(error))
+
+            // Exhaust after 3 attempts, otherwise increment counter
+            let cache_entry = if new_count >= 3 {
+                CacheEntry::InvalidExhausted(error.clone())
+            } else {
+                CacheEntry::Invalid(error.clone(), new_count)
+            };
+
+            CACHE.insert(repo_path.to_string(), cache_entry).await;
+            Err(errors::LivecardsError::GitHub(error))
         }
     }
 }

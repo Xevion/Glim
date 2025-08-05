@@ -68,6 +68,7 @@ async fn test_cache_entry_valid() {
             assert_eq!(cached_repo.forks_count, repo.forks_count);
         }
         CacheEntry::Invalid(_, _) => panic!("Expected Valid cache entry"),
+        CacheEntry::InvalidExhausted(_) => panic!("Expected Valid cache entry"),
     }
 }
 
@@ -83,6 +84,56 @@ async fn test_cache_entry_invalid() {
             assert!(matches!(cached_error, GitHubError::NotFound));
             assert_eq!(count, retry_count);
         }
+        CacheEntry::InvalidExhausted(_) => {
+            panic!("Expected Invalid cache entry, not InvalidExhausted")
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_cache_entry_invalid_exhausted() {
+    let error = GitHubError::NotFound;
+    let cache_entry = CacheEntry::InvalidExhausted(error.clone());
+
+    match cache_entry {
+        CacheEntry::Valid(_) => panic!("Expected InvalidExhausted cache entry"),
+        CacheEntry::Invalid(_, _) => panic!("Expected InvalidExhausted cache entry, not Invalid"),
+        CacheEntry::InvalidExhausted(cached_error) => {
+            assert!(matches!(cached_error, GitHubError::NotFound));
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_cache_entry_variants() {
+    // Test that we can handle all cache entry variants
+    let repo = create_test_repository();
+    let not_found_error = GitHubError::NotFound;
+    let network_error = GitHubError::NetworkError;
+
+    let valid_entry = CacheEntry::Valid(repo.clone());
+    let invalid_entry = CacheEntry::Invalid(not_found_error.clone(), 2);
+    let exhausted_entry = CacheEntry::InvalidExhausted(network_error.clone());
+
+    // Test pattern matching works for all variants
+    match valid_entry {
+        CacheEntry::Valid(_) => assert!(true),
+        _ => panic!("Expected Valid"),
+    }
+
+    match invalid_entry {
+        CacheEntry::Invalid(error, count) => {
+            assert!(matches!(error, GitHubError::NotFound));
+            assert_eq!(count, 2);
+        }
+        _ => panic!("Expected Invalid"),
+    }
+
+    match exhausted_entry {
+        CacheEntry::InvalidExhausted(error) => {
+            assert!(matches!(error, GitHubError::NetworkError));
+        }
+        _ => panic!("Expected InvalidExhausted"),
     }
 }
 

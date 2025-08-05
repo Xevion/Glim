@@ -253,7 +253,8 @@ async fn handler(
     let (actual_repo_name, format) = parse_repo_name_and_format(&repo_name);
 
     let repo_path = format!("{}/{}", owner, actual_repo_name);
-    let repo = github::get_repository_info(&repo_path, None)
+    let repo = github::GITHUB_CLIENT
+        .get_repository_info(&repo_path)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get repository info: {}", e);

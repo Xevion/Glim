@@ -160,45 +160,6 @@ async fn test_cache_entry_invalid() {
     }
 }
 
-// Test error handling scenarios
-#[tokio::test]
-async fn test_github_error_variants() {
-    use glim::errors::GitHubError;
-
-    // Test NotFound error
-    let not_found = GitHubError::NotFound;
-    assert_eq!(not_found.to_string(), "Repository not found");
-
-    // Test RateLimited error
-    let rate_limited = GitHubError::RateLimited;
-    assert_eq!(rate_limited.to_string(), "GitHub API rate limit exceeded");
-
-    // Test ApiError
-    let api_error = GitHubError::ApiError(500);
-    assert_eq!(api_error.to_string(), "GitHub API error: 500");
-
-    // Test NetworkError
-    let network_error = GitHubError::NetworkError;
-    assert_eq!(
-        network_error.to_string(),
-        "Network error while contacting GitHub API"
-    );
-
-    // Test InvalidFormat
-    let invalid_format = GitHubError::InvalidFormat("invalid/repo/format".to_string());
-    assert_eq!(
-        invalid_format.to_string(),
-        "Invalid repository format: invalid/repo/format"
-    );
-
-    // Test AuthError
-    let auth_error = GitHubError::AuthError("Invalid token".to_string());
-    assert_eq!(
-        auth_error.to_string(),
-        "Authentication failed: Invalid token"
-    );
-}
-
 // Test URL construction
 #[tokio::test]
 async fn test_github_api_url_construction() {

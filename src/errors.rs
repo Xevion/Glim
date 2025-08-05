@@ -68,6 +68,10 @@ pub enum GitHubError {
     /// Authentication error
     #[error("Authentication failed: {0}")]
     AuthError(String),
+
+    /// Circuit breaker open
+    #[error("Circuit breaker open")]
+    CircuitBreakerOpen,
 }
 
 /// Image generation specific errors
@@ -147,6 +151,7 @@ impl From<GitHubError> for axum::http::StatusCode {
             GitHubError::NetworkError => axum::http::StatusCode::BAD_GATEWAY,
             GitHubError::InvalidFormat(_) => axum::http::StatusCode::BAD_REQUEST,
             GitHubError::AuthError(_) => axum::http::StatusCode::UNAUTHORIZED,
+            GitHubError::CircuitBreakerOpen => axum::http::StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 }

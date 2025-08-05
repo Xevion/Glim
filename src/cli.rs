@@ -88,7 +88,7 @@ fn format_svg_template(
 /// Result indicating success or failure of card generation
 pub async fn run(cli: Cli) -> Result<()> {
     let repo_path = cli.repository.as_ref().unwrap();
-    let repo = github::get_repository_info(repo_path, cli.token).await?;
+    let repo = github::GITHUB_CLIENT.get_repository_info(repo_path).await?;
 
     let output_path = match cli.output {
         Some(path) => path,

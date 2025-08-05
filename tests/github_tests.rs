@@ -117,7 +117,7 @@ async fn test_cache_entry_variants() {
 
     // Test pattern matching works for all variants
     match valid_entry {
-        CacheEntry::Valid(_) => assert!(true),
+        CacheEntry::Valid(_) => (), // No assertion needed for successful match
         _ => panic!("Expected Valid"),
     }
 

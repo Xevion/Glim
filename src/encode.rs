@@ -3,7 +3,7 @@
 //! This module provides encoders for PNG, WebP, JPEG, and SVG formats
 //! with consistent error handling and result types.
 
-use crate::errors::{ImageError, LivecardsError, Result};
+use crate::errors::{GlimError, ImageError, Result};
 use image::{Rgba, RgbaImage};
 use std::io::Write;
 use tracing::instrument;
@@ -93,7 +93,7 @@ pub trait Encoder {
 }
 
 /// PNG encoder using the resvg library.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PngEncoder {
     rasterizer: crate::image::Rasterizer,
 }
@@ -119,15 +119,15 @@ impl Encoder for PngEncoder {
 
         let mut png_writer = png_encoder
             .write_header()
-            .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::PngWrite(e.to_string())))?;
 
         png_writer
             .write_image_data(pixmap.data())
-            .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::PngWrite(e.to_string())))?;
 
         png_writer
             .finish()
-            .map_err(|e| LivecardsError::Image(ImageError::PngWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::PngWrite(e.to_string())))?;
 
         let duration = start_time.elapsed();
 
@@ -149,14 +149,8 @@ impl Encoder for PngEncoder {
     }
 }
 
-impl Default for PngEncoder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// WebP encoder using the image crate.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct WebPEncoder;
 
 impl WebPEncoder {
@@ -172,20 +166,14 @@ impl Encoder for WebPEncoder {
 
         // Encode as WebP
         img.write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(writer))
-            .map_err(|e| LivecardsError::Image(ImageError::WebPWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::WebPWrite(e.to_string())))?;
 
         Ok(())
     }
 }
 
-impl Default for WebPEncoder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// JPEG encoder using the image crate.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct JpegEncoder;
 
 impl JpegEncoder {
@@ -205,20 +193,14 @@ impl Encoder for JpegEncoder {
         // Encode as JPEG
         rgb_img
             .write_with_encoder(image::codecs::jpeg::JpegEncoder::new(writer))
-            .map_err(|e| LivecardsError::Image(ImageError::JpegWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::JpegWrite(e.to_string())))?;
 
         Ok(())
     }
 }
 
-impl Default for JpegEncoder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// SVG encoder that just returns the SVG data as-is.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SvgEncoder;
 
 impl SvgEncoder {
@@ -232,20 +214,14 @@ impl Encoder for SvgEncoder {
     fn encode(&self, svg_data: &str, writer: &mut dyn Write, _scale: Option<f64>) -> Result<()> {
         writer
             .write_all(svg_data.as_bytes())
-            .map_err(|e| LivecardsError::Image(ImageError::SvgWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::SvgWrite(e.to_string())))?;
 
         Ok(())
     }
 }
 
-impl Default for SvgEncoder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// AVIF encoder using the image crate.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AvifEncoder;
 
 impl AvifEncoder {
@@ -263,21 +239,15 @@ impl Encoder for AvifEncoder {
         img.write_with_encoder(image::codecs::avif::AvifEncoder::new_with_speed_quality(
             writer, 10, 60,
         ))
-        .map_err(|e| LivecardsError::Image(ImageError::AvifWrite(e.to_string())))?;
+        .map_err(|e| GlimError::Image(ImageError::AvifWrite(e.to_string())))?;
 
         Ok(())
     }
 }
 
-impl Default for AvifEncoder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// GIF encoder using the image crate.
 /// Note: GIF encoding is not currently supported in the image crate.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct GifEncoder;
 
 impl GifEncoder {
@@ -290,20 +260,14 @@ impl Encoder for GifEncoder {
     #[instrument(skip(_svg_data, _writer))]
     fn encode(&self, _svg_data: &str, _writer: &mut dyn Write, _scale: Option<f64>) -> Result<()> {
         // GIF encoding is not currently supported
-        Err(LivecardsError::Image(ImageError::GifWrite(
+        Err(GlimError::Image(ImageError::GifWrite(
             "GIF encoding is not implemented".to_string(),
         )))
     }
 }
 
-impl Default for GifEncoder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// ICO encoder using the image crate.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct IcoEncoder;
 
 impl IcoEncoder {
@@ -337,15 +301,9 @@ impl Encoder for IcoEncoder {
         // Encode as ICO
         resized_img
             .write_with_encoder(image::codecs::ico::IcoEncoder::new(writer))
-            .map_err(|e| LivecardsError::Image(ImageError::IcoWrite(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::IcoWrite(e.to_string())))?;
 
         Ok(())
-    }
-}
-
-impl Default for IcoEncoder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

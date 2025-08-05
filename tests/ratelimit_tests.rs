@@ -1,4 +1,4 @@
-use livecards::ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter};
+use glim::ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter};
 use std::net::{IpAddr, Ipv4Addr};
 
 #[tokio::test]

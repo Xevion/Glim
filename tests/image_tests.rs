@@ -1,4 +1,4 @@
-use livecards::colors::get_color;
+use glim::colors::get_color;
 
 #[tokio::test]
 async fn test_color_mapping() {

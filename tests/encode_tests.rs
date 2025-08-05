@@ -1,4 +1,4 @@
-use livecards::encode::{
+use glim::encode::{
     create_encoder, AvifEncoder, Encoder, EncoderType, GifEncoder, IcoEncoder, ImageFormat,
     JpegEncoder, PngEncoder, SvgEncoder, WebPEncoder,
 };

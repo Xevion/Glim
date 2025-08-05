@@ -1,11 +1,11 @@
 [package]
-name = "livecards"
-version = "0.2.0"
+name = "glim"
+version = "0.1.0"
 edition = "2021"
 description = "Generate beautiful GitHub repository cards"
 authors = ["Xevion <xevion@xevion.dev>"]
 license = "MIT"
-repository = "https://github.com/Xevion/livecards"
+repository = "https://github.com/Xevion/glim"
 keywords = ["github", "cards", "cli", "svg", "png"]
 categories = ["command-line-utilities", "web-programming"]
 
@@ -37,6 +37,9 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 thiserror = "2.0.12"
 serde_json = "1.0.142"
 tokio-stream = "0.1.17"
+foyer = { version = "0.18.0", features = ["serde"] }
+bincode = "2.0.1"
+sha256 = "1.6.0"
 
 [build-dependencies]
 phf_codegen = "0.12.1"
@@ -64,3 +67,6 @@ pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
     "apt-get update && apt-get --assume-yes install libssl-dev:$CROSS_DEB_ARCH"
 ]
+
+[dev-dependencies]
+tempfile = "3.20.0"

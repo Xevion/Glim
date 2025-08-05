@@ -1,17 +1,17 @@
-use livecards::image;
+use glim::image;
 
 #[test]
 fn test_parse_extension_valid_formats() {
     let test_cases = [
-        ("png", livecards::encode::ImageFormat::Png),
-        ("PNG", livecards::encode::ImageFormat::Png),
-        ("webp", livecards::encode::ImageFormat::WebP),
-        ("jpeg", livecards::encode::ImageFormat::Jpeg),
-        ("jpg", livecards::encode::ImageFormat::Jpeg),
-        ("svg", livecards::encode::ImageFormat::Svg),
-        ("avif", livecards::encode::ImageFormat::Avif),
-        ("gif", livecards::encode::ImageFormat::Gif),
-        ("ico", livecards::encode::ImageFormat::Ico),
+        ("png", glim::encode::ImageFormat::Png),
+        ("PNG", glim::encode::ImageFormat::Png),
+        ("webp", glim::encode::ImageFormat::WebP),
+        ("jpeg", glim::encode::ImageFormat::Jpeg),
+        ("jpg", glim::encode::ImageFormat::Jpeg),
+        ("svg", glim::encode::ImageFormat::Svg),
+        ("avif", glim::encode::ImageFormat::Avif),
+        ("gif", glim::encode::ImageFormat::Gif),
+        ("ico", glim::encode::ImageFormat::Ico),
     ];
 
     for (extension, expected_format) in test_cases {
@@ -31,12 +31,12 @@ fn test_parse_extension_invalid_formats() {
 #[test]
 fn test_parse_extension_case_insensitive() {
     let test_cases = [
-        ("PNG", livecards::encode::ImageFormat::Png),
-        ("Png", livecards::encode::ImageFormat::Png),
-        ("pNg", livecards::encode::ImageFormat::Png),
-        ("WEBP", livecards::encode::ImageFormat::WebP),
-        ("JPEG", livecards::encode::ImageFormat::Jpeg),
-        ("JPG", livecards::encode::ImageFormat::Jpeg),
+        ("PNG", glim::encode::ImageFormat::Png),
+        ("Png", glim::encode::ImageFormat::Png),
+        ("pNg", glim::encode::ImageFormat::Png),
+        ("WEBP", glim::encode::ImageFormat::WebP),
+        ("JPEG", glim::encode::ImageFormat::Jpeg),
+        ("JPG", glim::encode::ImageFormat::Jpeg),
     ];
 
     for (extension, expected_format) in test_cases {
@@ -53,13 +53,13 @@ fn test_unsupported_extension_handling() {
 
     // Test that unsupported extensions are ignored and treated as part of repo name
     // This allows repositories like "vercel/next.js" to work normally
-    let (repo_name, format) = livecards::server::parse_repo_name_and_format("next.js");
+    let (repo_name, format) = glim::server::parse_repo_name_and_format("next.js");
     assert_eq!(repo_name, "next.js");
-    assert_eq!(format, livecards::encode::ImageFormat::Png);
+    assert_eq!(format, glim::encode::ImageFormat::Png);
 
-    let (repo_name, format) = livecards::server::parse_repo_name_and_format("config.xml");
+    let (repo_name, format) = glim::server::parse_repo_name_and_format("config.xml");
     assert_eq!(repo_name, "config.xml");
-    assert_eq!(format, livecards::encode::ImageFormat::Png);
+    assert_eq!(format, glim::encode::ImageFormat::Png);
 }
 
 #[test]
@@ -75,9 +75,9 @@ fn test_real_world_repository_names() {
     ];
 
     for (input, expected) in test_cases {
-        let (repo_name, format) = livecards::server::parse_repo_name_and_format(input);
+        let (repo_name, format) = glim::server::parse_repo_name_and_format(input);
         assert_eq!(repo_name, expected);
-        assert_eq!(format, livecards::encode::ImageFormat::Png);
+        assert_eq!(format, glim::encode::ImageFormat::Png);
     }
 }
 

@@ -3,7 +3,7 @@
 //! This module handles SVG template processing and multi-format encoding
 //! to create beautiful repository cards with dynamic content.
 
-use crate::errors::{ImageError, LivecardsError, Result};
+use crate::errors::{GlimError, ImageError, Result};
 use resvg::{tiny_skia, usvg};
 use tracing::instrument;
 
@@ -90,7 +90,7 @@ impl Rasterizer {
         };
 
         let tree = usvg::Tree::from_str(svg_data, &options)
-            .map_err(|e| LivecardsError::Image(ImageError::SvgRendering(e.to_string())))?;
+            .map_err(|e| GlimError::Image(ImageError::SvgRendering(e.to_string())))?;
 
         // Get the original SVG dimensions
         let original_size = tree.size().to_int_size();
@@ -110,7 +110,7 @@ impl Rasterizer {
         let pixmap_height = new_height as u32;
 
         let mut pixmap = tiny_skia::Pixmap::new(pixmap_width, pixmap_height).ok_or_else(|| {
-            LivecardsError::Image(ImageError::PixmapCreation(
+            GlimError::Image(ImageError::PixmapCreation(
                 "Failed to create pixmap".to_string(),
             ))
         })?;

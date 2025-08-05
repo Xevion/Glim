@@ -15,12 +15,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build --build-arg RUST_VERSION=${{ env.RUST_VERSION }} -t livecards-test .
+        run: docker build --build-arg RUST_VERSION=${{ env.RUST_VERSION }} -t glim-test .
 
       - name: Test image functionality
         run: |
           # Test server startup
-          docker run -d --name test-server -p 8000:8000 livecards-test
+          docker run -d --name test-server -p 8000:8000 glim-test
 
           # Wait for server to start with retry logic
           for i in {1..30}; do
@@ -52,7 +52,7 @@ jobs:
           fi
 
           # Test image generation
-          if ! curl -f -o test-image.png -w "%{http_code}" http://localhost:8000/xevion/livecards | grep -q "200"; then
+          if ! curl -f -o test-image.png -w "%{http_code}" http://localhost:8000/xevion/glim | grep -q "200"; then
             echo "::error::Image generation test failed"
             exit 1
           fi
@@ -70,7 +70,7 @@ jobs:
       - name: Test image size
         run: |
           # Check that the image is reasonably sized
-          IMAGE_SIZE_RAW=$(docker images livecards-test --format "{{.Size}}")
+          IMAGE_SIZE_RAW=$(docker images glim-test --format "{{.Size}}")
           echo "Raw image size: ${IMAGE_SIZE_RAW}"
 
           # Convert size to MB (handle both decimal and integer sizes)

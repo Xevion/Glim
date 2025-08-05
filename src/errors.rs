@@ -1,14 +1,14 @@
-//! Centralized error handling for the livecards application.
+//! Centralized error handling for the glim application.
 //!
 //! This module provides a unified error type that consolidates all
 //! application errors into a single enum for better error handling.
 
 use thiserror::Error;
 
-/// Unified error type for the livecards application.
+/// Unified error type for the glim application.
 #[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
-pub enum LivecardsError {
+pub enum GlimError {
     /// GitHub API related errors
     #[error("GitHub API error: {0}")]
     GitHub(#[from] GitHubError),
@@ -133,7 +133,7 @@ pub enum CliError {
 }
 
 /// Type alias for Result using the unified error type
-pub type Result<T> = std::result::Result<T, LivecardsError>;
+pub type Result<T> = std::result::Result<T, GlimError>;
 
 /// Convert GitHub API errors to HTTP status codes
 impl From<GitHubError> for axum::http::StatusCode {

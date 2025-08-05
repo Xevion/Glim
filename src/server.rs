@@ -82,7 +82,7 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
 
     // Get version from Cargo.toml
     let version = env!("CARGO_PKG_VERSION");
-    let server_header = format!("livecards/{}", version);
+    let server_header = format!("glim/{}", version);
 
     if let Ok(header_value) = axum::http::HeaderValue::from_str(&server_header) {
         response
@@ -182,10 +182,10 @@ async fn shutdown_signal() {
 /// Handles index route - redirects to example repository.
 ///
 /// Endpoint: GET /
-/// Returns: Temporary redirect to /Xevion/livecards
+/// Returns: Temporary redirect to /Xevion/glim
 #[instrument]
 async fn index_handler() -> Redirect {
-    Redirect::temporary("/Xevion/livecards")
+    Redirect::temporary("/Xevion/glim")
 }
 
 /// Handles status route - returns rate limiter status.
@@ -258,7 +258,7 @@ async fn handler(
         .map_err(|e| {
             tracing::error!("Failed to get repository info: {}", e);
             let status_code = match &e {
-                crate::errors::LivecardsError::GitHub(github_error) => github_error.clone().into(),
+                crate::errors::GlimError::GitHub(github_error) => github_error.clone().into(),
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
             (

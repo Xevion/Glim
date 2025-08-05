@@ -46,7 +46,7 @@ static CACHE: Lazy<Cache<String, CacheEntry>> = Lazy::new(|| {
 /// Shared HTTP client for GitHub API requests.
 static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
-        .user_agent("livecards-generator")
+        .user_agent("glim-generator")
         .build()
         .expect("Failed to create HTTP client")
 });
@@ -83,7 +83,7 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
                     "Cache hit for invalid repo {} (retries exhausted)",
                     repo_path
                 );
-                return Err(errors::LivecardsError::GitHub(error));
+                return Err(errors::GlimError::GitHub(error));
             }
             // Invalid entry with count < 3: continue to API call
             _ => {}
@@ -107,7 +107,7 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
                 let repo: Repository = response
                     .json()
                     .await
-                    .map_err(|_| errors::LivecardsError::GitHub(GitHubError::NetworkError))?;
+                    .map_err(|_| errors::GlimError::GitHub(GitHubError::NetworkError))?;
                 debug!("Fetched repo info for {}", repo_path);
                 CACHE
                     .insert(repo_path.to_string(), CacheEntry::Valid(repo.clone()))
@@ -132,7 +132,7 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
                             CacheEntry::InvalidExhausted(error.clone()),
                         )
                         .await;
-                    return Err(errors::LivecardsError::GitHub(error));
+                    return Err(errors::GlimError::GitHub(error));
                 }
 
                 // Increment retry count for other errors
@@ -157,7 +157,7 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
                 };
 
                 CACHE.insert(repo_path.to_string(), cache_entry).await;
-                Err(errors::LivecardsError::GitHub(error))
+                Err(errors::GlimError::GitHub(error))
             }
         }
         Err(_) => {
@@ -182,7 +182,7 @@ pub async fn get_repository_info(repo_path: &str, token: Option<String>) -> Resu
             };
 
             CACHE.insert(repo_path.to_string(), cache_entry).await;
-            Err(errors::LivecardsError::GitHub(error))
+            Err(errors::GlimError::GitHub(error))
         }
     }
 }

@@ -1,8 +1,9 @@
-//! Livecards - Generate beautiful GitHub repository cards.
+//! Glim - Generate beautiful GitHub repository cards.
 //!
 //! A command-line tool and HTTP server for creating dynamic repository cards
 //! that display GitHub repository information in a clean, visual format.
 
+pub mod cache;
 pub mod colors;
 pub mod encode;
 pub mod errors;

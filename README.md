@@ -1,15 +1,22 @@
-# Livecards
+<div align="center">
+  <img src="https://gh.xevion.dev/Xevion/Glim.png?s=1.2" alt="Glim">
+</div>
 
-A command-line tool to generate beautiful, dynamic cards for your GitHub repositories.
+# Glim
 
-- Built completely with Rust
+Glīm (pronounced 'gleem') is a command-line tool and web-server for generating beautiful, dynamic cards for your GitHub repositories.
+
+The name comes from an Old English word meaning a small gleam of light, representing how each card captures the brilliance of your project.
+
+- Built entirely with Rust, generating in <50ms, idling at ~5 MB of memory
 - Uses the [GitHub API](https://docs.github.com/en/rest) to fetch repository data
-- Generates cards from SVGs, rasterized to PNGs
+- Provides image rasterization and encoding to PNG, JPEG, AVIF, WebP, GIF
+- Fully tested, built for every major OS and architecture
 
 ## Usage
 
 ```bash
-Usage: livecards [OPTIONS] <REPOSITORY>
+Usage: glim [OPTIONS] <REPOSITORY>
 
 Arguments:
   <REPOSITORY>  The repository to generate a card for, in the format `owner/repo`
@@ -31,13 +38,11 @@ To build the project from source, you'll need to have Rust and Cargo installed.
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/Xevion/livecards.git
-    ```
-2.  Build the project:
-    ```bash
+    git clone https://github.com/Xevion/glim.git
+    cd glim
     cargo build --release
     ```
-3.  The executable will be located in `target/release/livecards`.
+2.  The executable will be located in `target/release/glim`.
 
 ## Contributing
 

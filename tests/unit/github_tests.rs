@@ -1,4 +1,4 @@
-use livecards::github::{get_repository_info, Repository};
+use glim::github::{get_repository_info, Repository};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -124,8 +124,8 @@ async fn test_repository_with_null_fields() {
 
 #[tokio::test]
 async fn test_cache_entry_valid() {
-    use livecards::errors::GitHubError;
-    use livecards::github::CacheEntry;
+    use glim::errors::GitHubError;
+    use glim::github::CacheEntry;
 
     let repo = create_test_repository();
     let cache_entry = CacheEntry::Valid(repo.clone());
@@ -144,8 +144,8 @@ async fn test_cache_entry_valid() {
 
 #[tokio::test]
 async fn test_cache_entry_invalid() {
-    use livecards::errors::GitHubError;
-    use livecards::github::CacheEntry;
+    use glim::errors::GitHubError;
+    use glim::github::CacheEntry;
 
     let error = GitHubError::NotFound;
     let retry_count = 2;
@@ -163,7 +163,7 @@ async fn test_cache_entry_invalid() {
 // Test error handling scenarios
 #[tokio::test]
 async fn test_github_error_variants() {
-    use livecards::errors::GitHubError;
+    use glim::errors::GitHubError;
 
     // Test NotFound error
     let not_found = GitHubError::NotFound;
@@ -212,8 +212,8 @@ async fn test_github_api_url_construction() {
 // Test user agent header
 #[tokio::test]
 async fn test_user_agent_header() {
-    let expected_user_agent = "livecards-generator";
-    assert_eq!(expected_user_agent, "livecards-generator");
+    let expected_user_agent = "glim-generator";
+    assert_eq!(expected_user_agent, "glim-generator");
 }
 
 // Test authorization header format

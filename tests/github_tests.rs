@@ -1,5 +1,5 @@
-use livecards::errors::GitHubError;
-use livecards::github::{CacheEntry, Repository};
+use glim::errors::GitHubError;
+use glim::github::{CacheEntry, Repository};
 
 // Test fixtures
 fn create_test_repository() -> Repository {

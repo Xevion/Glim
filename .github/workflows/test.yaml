@@ -77,8 +77,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: livecards-${{ matrix.target.target }}-${{ matrix.feature }}
+          name: glim-${{ matrix.target.target }}-${{ matrix.feature }}
           path: |
-            target/${{ matrix.target.target }}/release/livecards
-            target/${{ matrix.target.target }}/release/livecards.exe
+            target/${{ matrix.target.target }}/release/glim
+            target/${{ matrix.target.target }}/release/glim.exe
           if-no-files-found: error

@@ -1,4 +1,4 @@
-//! Command-line interface for livecards.
+//! Command-line interface for glim.
 //!
 //! Handles CLI argument parsing and execution logic for generating repository cards.
 
@@ -14,7 +14,7 @@ use crate::{
     github,
 };
 
-/// Command-line arguments for livecards.
+/// Command-line arguments for glim.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {

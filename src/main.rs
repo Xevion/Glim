@@ -24,14 +24,18 @@ const DEFAULT_PORT: u16 = 8080;
 
 /// A helper method for invoking the address parser, and filling in the missing parts of the address.
 ///
-/// If no port is provided, use 8080. Works for both IPv4 and IPv6.
+/// If no port is provided, use the provided default_port. Works for both IPv4 and IPv6.
 /// If no host is provided, defaults to IPv4 at 127.0.0.1.
 /// Multiple addresses can be provided, separated by commas.
+///
+/// # Arguments
+/// * `addr` - Address string to parse
+/// * `default_port` - Default port to use when no port is specified
 ///
 /// # Errors
 ///
 /// Returns an error if any address is invalid.
-fn get_addresses(addr: &str) -> Result<Vec<SocketAddr>> {
+fn get_addresses(addr: &str, default_port: u16) -> Result<Vec<SocketAddr>> {
     let addresses: Vec<Result<SocketAddr>> = addr
         .split(',')
         .map(|s| s.trim())
@@ -39,7 +43,7 @@ fn get_addresses(addr: &str) -> Result<Vec<SocketAddr>> {
         .map(|s| match server::parse_address_components(s) {
             Ok(value) => match value.to_enum() {
                 terrors::E3::A(addr) => Ok(addr),
-                terrors::E3::B(ip) => Ok(SocketAddr::from((ip, DEFAULT_PORT))),
+                terrors::E3::B(ip) => Ok(SocketAddr::from((ip, default_port))),
                 terrors::E3::C(port) => Ok(SocketAddr::from((DEFAULT_HOST, port))),
             },
             Err(value) => match value.to_enum() {
@@ -69,10 +73,20 @@ async fn main() -> Result<()> {
 
         if let Some(addr_argument) = cli.server.as_ref() {
             // If no address is provided, use the default address
+            let default_port = cli.port.unwrap_or_else(|| {
+                if let Ok(port_str) = std::env::var("PORT") {
+                    port_str.parse::<u16>().unwrap_or_else(|_| {
+                        tracing::error!("Invalid PORT environment variable: {}", port_str);
+                        std::process::exit(1);
+                    })
+                } else {
+                    DEFAULT_PORT
+                }
+            });
             let addrs = addr_argument.as_ref().map_or(
-                Ok(vec![SocketAddr::new(DEFAULT_HOST, DEFAULT_PORT)]),
+                Ok(vec![SocketAddr::new(DEFAULT_HOST, default_port)]),
                 // If an argument is provided, use it
-                |addr| get_addresses(addr),
+                |addr| get_addresses(addr, default_port),
             )?;
 
             if let Some(Err(e)) = server::start_server(addrs).await {
@@ -100,8 +114,18 @@ async fn main() -> Result<()> {
         let args: Vec<String> = std::env::args().collect();
         let server_addr = args.get(1).cloned();
 
+        // Get default port from environment variable or use constant
+        let default_port = if let Ok(port_str) = std::env::var("PORT") {
+            port_str.parse::<u16>().unwrap_or_else(|_| {
+                tracing::error!("Invalid PORT environment variable: {}", port_str);
+                std::process::exit(1);
+            })
+        } else {
+            DEFAULT_PORT
+        };
+
         if let Some(addr) = server_addr {
-            if let Some(Err(e)) = server::start_server(get_addresses(&addr)?).await {
+            if let Some(Err(e)) = server::start_server(get_addresses(&addr, default_port)?).await {
                 tracing::error!("Server error: {}", e);
                 return Err(crate::errors::GlimError::General(e));
             }

@@ -42,6 +42,10 @@ pub struct Cli {
     /// Set the logging level.
     #[arg(long, short = 'L', value_name = "LEVEL", default_value_t = if cfg!(debug_assertions) { Level::DEBUG } else { Level::INFO })]
     pub log_level: Level,
+
+    /// Port to use for the server (defaults to 8080).
+    #[arg(short, long)]
+    pub port: Option<u16>,
 }
 
 /// Formats the SVG template with repository data.

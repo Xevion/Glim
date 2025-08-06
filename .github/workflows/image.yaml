@@ -14,8 +14,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
-        run: docker build --build-arg RUST_VERSION=${{ env.RUST_VERSION }} -t glim-test .
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true # required to allow for testing the image within this workflow
+          tags: glim-test
+          build-args: |
+            RUST_VERSION=${{ env.RUST_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Test image functionality
         run: |
@@ -111,16 +125,17 @@ jobs:
           }
 
           # Check image size - capture return code, not output
-          check_image_size "glim-test" "100M"
+          # Use || true to prevent set -e from failing on non-zero return codes
+          check_image_size "glim-test" "100M" || RET_CODE=$?
 
           # Handle return code
-          if [ $? -ge 1 ]; then
+          if [ $RET_CODE -eq 1 ]; then
             echo "::error::Image is too large"
             exit 1
-          elif [ $? -eq 2 ]; then
-            echo "::warning::Image is within 10% of the limit"
-            exit 0  # required, otherwise the function call above will provide the exit code '2'
-          elif [ $? -eq -1 ]; then
+          elif [ $RET_CODE -eq -1 ]; then
             echo "::warning::Image size check failed"
             exit 1
+          elif [ $RET_CODE -eq 2 ]; then
+            echo "::warning::Image is within 10% of the limit"
+            exit 0
           fi

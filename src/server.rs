@@ -83,7 +83,6 @@ struct RateLimiterHealth {
 #[derive(Debug, Serialize)]
 struct GitHubApiHealth {
     status: String,
-    token_configured: bool,
     circuit_breaker_open: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_error: Option<String>,
@@ -417,7 +416,7 @@ struct HealthQuery {
 /// Authentication:
 /// - Debug mode: always accessible
 /// - Release mode: requires HEALTHCHECK_TOKEN via Authorization Bearer or token query param
-#[instrument]
+#[instrument(skip(state, headers, query))]
 async fn health_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -468,17 +467,19 @@ async fn health_handler(
 
     // Check GitHub API health
     let github_client = &github::GITHUB_CLIENT;
-    let token_configured = github_client.has_token();
     let circuit_breaker_open = github_client.disabled();
 
     // Perform a lightweight GitHub API check if token is available and circuit breaker is closed
-    let (github_status, last_error) = if !token_configured {
-        ("warning", Some("No GitHub token configured".to_string()))
-    } else if circuit_breaker_open {
+    let (github_status, last_error) = if circuit_breaker_open {
         ("degraded", Some("Circuit breaker is open".to_string()))
     } else {
         // Try a quick validation call
-        match tokio::time::timeout(Duration::from_secs(2), github_client.validate_token()).await {
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            github_client.fetch_repository_info("torvalds/linux"),
+        )
+        .await
+        {
             Ok(Ok(_)) => ("healthy", None),
             Ok(Err(e)) => ("degraded", Some(e.to_string())),
             Err(_) => ("degraded", Some("Token validation timeout".to_string())),
@@ -487,7 +488,6 @@ async fn health_handler(
 
     let github_health = GitHubApiHealth {
         status: github_status.to_string(),
-        token_configured,
         circuit_breaker_open,
         last_error,
     };

@@ -188,7 +188,7 @@ impl GitHubClient {
 
         // Invoke the API call
         debug!("Cache miss for {}", repo_path);
-        let result = self.make_github_api_request(repo_path).await;
+        let result = self.fetch_repository_info(repo_path).await;
 
         match result {
             // Success, cache the result
@@ -236,7 +236,7 @@ impl GitHubClient {
 
     /// Makes the actual GitHub API request.
     #[instrument(skip(self))]
-    async fn make_github_api_request(&self, repo_path: &str) -> Result<Repository> {
+    pub async fn fetch_repository_info(&self, repo_path: &str) -> Result<Repository> {
         // Build request
         let url = format!("https://api.github.com/repos/{}", repo_path);
         let request = self.http_client.get(&url);

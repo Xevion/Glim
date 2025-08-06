@@ -3,6 +3,8 @@
 //! This module provides a unified error type that consolidates all
 //! application errors into a single enum for better error handling.
 
+use std::net::AddrParseError;
+use std::num::ParseIntError;
 use thiserror::Error;
 
 /// Unified error type for the glim application.
@@ -40,6 +42,18 @@ pub enum GlimError {
     /// SVG processing errors
     #[error("SVG error: {0}")]
     Svg(#[from] usvg::Error),
+
+    /// Address parsing errors
+    #[error("Address parsing error: {0}")]
+    AddrParse(#[from] AddrParseError),
+
+    /// Integer parsing errors
+    #[error("Integer parsing error: {0}")]
+    ParseInt(#[from] ParseIntError),
+
+    /// General errors
+    #[error("General error: {0}")]
+    General(#[from] anyhow::Error),
 }
 
 /// GitHub API specific errors

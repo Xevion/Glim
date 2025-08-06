@@ -11,19 +11,31 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
-use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::{
+    io::Cursor,
+    net::{IpAddr, Ipv4Addr},
+    num::ParseIntError,
+};
+use std::{
+    net::AddrParseError,
+    time::{Duration, Instant},
+};
+use std::{net::SocketAddrV6, path::Path as StdPath};
+use std::{
+    net::{Ipv6Addr, SocketAddr},
+    str::FromStr,
+};
+use terrors::OneOf;
 use tokio::signal;
 use tokio::time::timeout;
 use tracing::{info, instrument};
 
 use crate::{
     encode::Encoder,
-    github, image,
+    github,
+    image::{self, ImageFormat},
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
-use std::path::Path as StdPath;
 
 /// Error response structure for JSON error responses
 #[derive(Debug, Serialize)]
@@ -97,7 +109,7 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
 ///
 /// # Arguments
 /// * `address` - Server address (e.g., "127.0.0.1:8000")
-pub async fn start_server(address: String) {
+pub async fn start_server(address: SocketAddr) {
     let rate_limiter = RateLimiter::new(RateLimitConfig::default());
     let app_state = AppState { rate_limiter };
 
@@ -109,20 +121,10 @@ pub async fn start_server(address: String) {
         .layer(middleware::from_fn(add_server_header))
         .with_state(app_state);
 
-    let addr = match address.parse::<SocketAddr>() {
-        Ok(addr) => addr,
-        Err(e) => {
-            tracing::error!("Invalid address '{}': {}", address, e);
-            return;
-        }
-    };
-
-    info!("Listening on http://{}", addr);
-
-    let listener = match tokio::net::TcpListener::bind(addr).await {
+    let listener = match tokio::net::TcpListener::bind(address).await {
         Ok(listener) => listener,
         Err(e) => {
-            tracing::error!("Failed to bind to address '{}': {}", addr, e);
+            tracing::error!("Failed to bind to address '{}': {}", address, e);
             return;
         }
     };
@@ -134,7 +136,9 @@ pub async fn start_server(address: String) {
 
     let graceful = server.with_graceful_shutdown(shutdown_signal());
 
-    info!("Server starting, press Ctrl+C to shut down.");
+    info!(
+        address = ?address,
+        "Server starting, press Ctrl+C to shut down.");
 
     if let Err(e) = graceful.await {
         tracing::error!("Server error: {}", e);
@@ -250,7 +254,10 @@ async fn handler(
     }
 
     // Parse format from repo_name (e.g., "repo.png" -> format PNG, "repo" -> format PNG)
-    let (actual_repo_name, format) = parse_repo_name_and_format(&repo_name);
+    let (actual_repo_name, format) = {
+        let (actual_repo_name, format) = parse_repo_name_and_format(&repo_name);
+        (actual_repo_name, format.unwrap_or(ImageFormat::Png))
+    };
 
     let repo_path = format!("{}/{}", owner, actual_repo_name);
 
@@ -364,7 +371,7 @@ async fn handler(
 ///
 /// # Returns
 /// Tuple of (actual_repo_name, format)
-pub fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::ImageFormat) {
+pub fn parse_repo_name_and_format(repo_name: &str) -> (String, Option<ImageFormat>) {
     let path = StdPath::new(repo_name);
 
     if let Some(extension) = path.extension() {
@@ -372,14 +379,14 @@ pub fn parse_repo_name_and_format(repo_name: &str) -> (String, crate::encode::Im
             if let Some(format) = image::parse_extension(extension_str) {
                 // Valid extension found, remove it from repo name
                 let actual_repo_name = path.with_extension("").to_string_lossy().to_string();
-                return (actual_repo_name, format);
+                return (actual_repo_name, Some(format));
             }
         }
     }
 
     // No valid extension found or unsupported extension - treat as part of repo name
     // This allows repositories like "vercel/next.js" to work normally
-    (repo_name.to_string(), crate::encode::ImageFormat::Png)
+    (repo_name.to_string(), None)
 }
 
 /// Parses the scale parameter from query parameters.
@@ -494,6 +501,99 @@ impl ImageGenerationTiming {
                 "Slow image generation"
             );
         }
+    }
+}
+
+/// Parse the address components from a string, allowing for either a full address (host:port), just a host, or just a port.
+///
+/// This function does not apply any kind of defaulting, and will return an error if the address is invalid.
+///
+/// # Examples
+///
+/// ```
+/// // Full socket address
+/// let result = parse_address_components("127.0.0.1:8080");
+/// // Returns Ok(OneOf::A(SocketAddr))
+///
+/// // Just an IPv4 address (colon can be omitted)
+/// let result = parse_address_components("192.168.1.1:");
+/// // Returns Ok(OneOf::B(IpAddr))
+///
+/// // Just an IPv6 address (colon can be omitted)
+/// let result = parse_address_components("[::1]");
+/// // Returns Ok(OneOf::B(IpAddr))
+///
+/// // Just a port number (colon can be omitted)
+/// let result = parse_address_components(":3000");
+/// // Returns Ok(OneOf::C(u16))
+///
+/// // Invalid input
+/// let result = parse_address_components("invalid");
+/// // Returns Err(...)
+/// ```
+pub fn parse_address_components(
+    input: &str,
+) -> Result<OneOf<(SocketAddr, IpAddr, u16)>, OneOf<(anyhow::Error, AddrParseError, ParseIntError)>>
+{
+    // Check if it's an ipv6 address before trying to split
+    if input.starts_with('[') {
+        // Does it look like an ipv6 address without a port?
+        let no_port = input.ends_with(']') || input.ends_with("]:");
+
+        // If so, parse it as an ipv6 address
+        if no_port {
+            return match Ipv6Addr::from_str(input) {
+                Ok(addr) => Ok(OneOf::new(IpAddr::V6(addr))),
+                Err(e) => Err(OneOf::new(e)),
+            };
+        }
+
+        // Otherwise, we'll assume it's an ipv6 address with a port
+        return match SocketAddrV6::from_str(input) {
+            Ok(addr) => Ok(OneOf::new(SocketAddr::V6(addr))),
+            Err(e) => Err(OneOf::new(e)),
+        };
+    }
+
+    let (host, port) = match input.split_once(':') {
+        Some((host, port)) => {
+            // Check the length of each component
+            (
+                if host.len() > 0 { Some(host) } else { None },
+                if port.len() > 0 { Some(port) } else { None },
+            )
+        }
+        None => {
+            // If there's no colon, we need to figure out if it's a host or a port
+            if input.contains('.') {
+                // It's probably an ipv4 address
+                (Some(input), None)
+            } else {
+                // Assume it's a port
+                (None, Some(input))
+            }
+        }
+    };
+
+    // Now just parse the components individually or together, and return the appropriate type
+    match (host, port) {
+        (Some(host), Some(port)) => {
+            let host = host.parse::<Ipv4Addr>().map_err(|e| OneOf::new(e))?;
+            let port = port.parse::<u16>().map_err(|e| OneOf::new(e))?;
+            Ok(OneOf::new(SocketAddr::from((host, port))))
+        }
+        (Some(host), None) => {
+            let host = host.parse::<Ipv4Addr>().map_err(|e| OneOf::new(e))?;
+            Ok(OneOf::new(IpAddr::V4(host)))
+        }
+        (None, Some(port)) => {
+            let port = port.parse::<u16>().map_err(|e| OneOf::new(e))?;
+            Ok(OneOf::new(port))
+        }
+        (None, None) => Err(OneOf::new(anyhow::Error::msg(format!(
+            "Invalid address: {}",
+            input,
+        )))),
     }
 }
 

@@ -55,11 +55,11 @@ fn test_unsupported_extension_handling() {
     // This allows repositories like "vercel/next.js" to work normally
     let (repo_name, format) = glim::server::parse_repo_name_and_format("next.js");
     assert_eq!(repo_name, "next.js");
-    assert_eq!(format, glim::encode::ImageFormat::Png);
+    assert_eq!(format, None);
 
     let (repo_name, format) = glim::server::parse_repo_name_and_format("config.xml");
     assert_eq!(repo_name, "config.xml");
-    assert_eq!(format, glim::encode::ImageFormat::Png);
+    assert_eq!(format, None);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_real_world_repository_names() {
     for (input, expected) in test_cases {
         let (repo_name, format) = glim::server::parse_repo_name_and_format(input);
         assert_eq!(repo_name, expected);
-        assert_eq!(format, glim::encode::ImageFormat::Png);
+        assert_eq!(format, None);
     }
 }
 

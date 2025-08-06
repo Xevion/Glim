@@ -34,11 +34,12 @@ pub struct Cli {
         short,
         long,
         value_name = "HOST:PORT",
-        default_missing_value = Some("127.0.0.1:8000"),
+
         num_args = 0..=1,
-        require_equals = true
+        require_equals = false
     )]
-    pub server: Option<String>,
+    pub server: Option<Option<String>>,
+
     /// Set the logging level.
     #[arg(long, short = 'L', value_name = "LEVEL", default_value_t = if cfg!(debug_assertions) { Level::DEBUG } else { Level::INFO })]
     pub log_level: Level,

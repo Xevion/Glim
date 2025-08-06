@@ -735,7 +735,26 @@ pub fn parse_scale_parameter(query: &ImageQuery) -> Option<f64> {
 /// # Returns
 /// Formatted SVG string
 fn format_svg_template(data: &SvgInputData) -> String {
-    let svg_template = include_str!("../card.svg");
+    let svg_template = {
+        #[cfg(debug_assertions)]
+        {
+            tracing::debug!("Loading card.svg from current directory");
+
+            // Load at runtime to allow for hot reloading
+            std::fs::read_to_string("card.svg").unwrap_or_else(|_| {
+                tracing::warn!(
+                    "Failed to load card.svg from current directory, using embedded template"
+                );
+                include_str!("../card.svg").to_string()
+            })
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            // Load at compile time as it generally won't be changing
+            include_str!("../card.svg")
+        }
+    };
     let wrapped_description = crate::image::wrap_text(&data.description, 65);
     let language_color =
         crate::colors::get_color(&data.language).unwrap_or_else(|| "#f1e05a".to_string());

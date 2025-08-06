@@ -42,6 +42,8 @@ pub struct Repository {
     pub stargazers_count: u32,
     /// Number of forks
     pub forks_count: u32,
+    /// Whether the repository is private
+    pub private: bool,
 }
 
 /// Cache entry for tracking successful and failed requests.
@@ -267,6 +269,14 @@ impl GitHubClient {
                 .await
                 .map_err(|_| errors::GlimError::GitHub(GitHubError::NetworkError))?;
             debug!("Fetched repo info for {}", repo_path);
+
+            if repo.private {
+                warn!("A private repository was fetched: {}", repo_path);
+
+                // Return a 404 as if the repository was not found
+                return Err(errors::GlimError::GitHub(GitHubError::NotFound));
+            }
+
             Ok(repo)
         } else {
             let error = match status.as_u16() {

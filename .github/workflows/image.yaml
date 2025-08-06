@@ -36,6 +36,9 @@ jobs:
 
             if [ $i -eq 30 ]; then
               echo "::error::Server failed to start within 30 seconds"
+              echo "=== Container logs ==="
+              docker logs test-server
+              echo "=== End container logs ==="
               exit 1
             fi
             sleep 1

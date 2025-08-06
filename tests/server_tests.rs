@@ -174,3 +174,157 @@ fn test_scale_parameter_length_validation() {
     };
     assert_eq!(parse_scale_parameter(&query), None);
 }
+
+#[test]
+fn test_parse_address_components_ipv6() {
+    use glim::server::parse_address_components;
+    use std::net::{IpAddr, SocketAddr};
+
+    // Test IPv6 addresses without ports
+    let result = parse_address_components("[::]");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::B(IpAddr::V6(_))
+            ),
+        "Expected Ok(IpAddr::V6(_)), got {:?}",
+        result
+    );
+
+    let result = parse_address_components("[::1]");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::B(IpAddr::V6(_))
+            ),
+        "Expected Ok(IpAddr::V6(_)), got {:?}",
+        result
+    );
+
+    // Test IPv6 addresses with ports
+    let result = parse_address_components("[::]:8080");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::A(SocketAddr::V6(_))
+            ),
+        "Expected Ok(SocketAddr::V6(_)), got {:?}",
+        result
+    );
+
+    let result = parse_address_components("[::1]:3000");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::A(SocketAddr::V6(_))
+            ),
+        "Expected Ok(SocketAddr::V6(_)), got {:?}",
+        result
+    );
+
+    // Test IPv6 addresses with empty port (should be treated as no port)
+    let result = parse_address_components("[::]:");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::B(IpAddr::V6(_))
+            ),
+        "Expected Ok(IpAddr::V6(_)), got {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_parse_address_components_ipv4() {
+    use glim::server::parse_address_components;
+    use std::net::{IpAddr, SocketAddr};
+
+    // Test IPv4 addresses without ports
+    let result = parse_address_components("127.0.0.1");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::B(IpAddr::V4(_))
+            ),
+        "Expected Ok(IpAddr::V4(_)), got {:?}",
+        result
+    );
+
+    // Test IPv4 addresses with ports
+    let result = parse_address_components("127.0.0.1:8080");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(
+                result.as_ref().unwrap().as_enum(),
+                terrors::E3::A(SocketAddr::V4(_))
+            ),
+        "Expected Ok(SocketAddr::V4(_)), got {:?}",
+        result
+    );
+
+    // Test just port
+    let result = parse_address_components("8080");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(result.as_ref().unwrap().as_enum(), terrors::E3::C(8080)),
+        "Expected Ok(8080), got {:?}",
+        result
+    );
+
+    let result = parse_address_components(":8080");
+    assert!(
+        result.as_ref().is_ok()
+            && matches!(result.as_ref().unwrap().as_enum(), terrors::E3::C(8080)),
+        "Expected Ok(8080), got {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_parse_address_components_invalid() {
+    use glim::server::parse_address_components;
+
+    // Test invalid IPv6 addresses
+    let result = parse_address_components("[invalid]");
+    assert!(result.is_err());
+
+    let result = parse_address_components("[::]:invalid");
+    assert!(result.is_err());
+
+    // Test invalid IPv4 addresses
+    let result = parse_address_components("256.256.256.256");
+    assert!(result.is_err());
+
+    let result = parse_address_components("127.0.0.1:99999");
+    assert!(result.is_err());
+
+    // Test invalid port
+    let result = parse_address_components("99999");
+    assert!(result.is_err());
+
+    // Test empty input
+    let result = parse_address_components("");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_debug_ipv6_parsing() {
+    use glim::server::parse_address_components;
+    use std::net::Ipv6Addr;
+    use std::str::FromStr;
+
+    println!("Testing [::] parsing...");
+    let result = parse_address_components("[::]");
+    println!("Result: {:?}", result);
+
+    // Also test the raw Ipv6Addr parsing
+    println!("Testing raw :: parsing...");
+    let ipv6_result = Ipv6Addr::from_str("::");
+    println!("Ipv6Addr result: {:?}", ipv6_result);
+}

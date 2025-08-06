@@ -888,16 +888,29 @@ pub fn parse_address_components(
 
         // If so, parse it as an ipv6 address
         if no_port {
-            return match Ipv6Addr::from_str(input) {
+            // Remove the brackets (and colon from the end of the address) if it's there
+            let ipv6_str = if input.ends_with("]:") {
+                &input[1..input.len() - 2]
+            } else {
+                &input[1..input.len() - 1]
+            };
+
+            return match Ipv6Addr::from_str(ipv6_str) {
                 Ok(addr) => Ok(OneOf::new(IpAddr::V6(addr))),
-                Err(e) => Err(OneOf::new(e)),
+                Err(e) => Err(OneOf::new(anyhow::Error::msg(format!(
+                    "Failed to parse IPv6 address '{}': {}",
+                    input, e
+                )))),
             };
         }
 
         // Otherwise, we'll assume it's an ipv6 address with a port
         return match SocketAddrV6::from_str(input) {
             Ok(addr) => Ok(OneOf::new(SocketAddr::V6(addr))),
-            Err(e) => Err(OneOf::new(e)),
+            Err(e) => Err(OneOf::new(anyhow::Error::msg(format!(
+                "Failed to parse IPv6 socket address '{}': {}",
+                input, e
+            )))),
         };
     }
 
@@ -924,16 +937,36 @@ pub fn parse_address_components(
     // Now just parse the components individually or together, and return the appropriate type
     match (host, port) {
         (Some(host), Some(port)) => {
-            let host = host.parse::<Ipv4Addr>().map_err(OneOf::new)?;
-            let port = port.parse::<u16>().map_err(OneOf::new)?;
+            let host = host.parse::<Ipv4Addr>().map_err(|e| {
+                OneOf::new(anyhow::Error::msg(format!(
+                    "Failed to parse IPv4 host '{}' in address '{}': {}",
+                    host, input, e
+                )))
+            })?;
+            let port = port.parse::<u16>().map_err(|e| {
+                OneOf::new(anyhow::Error::msg(format!(
+                    "Failed to parse port '{}' in address '{}': {}",
+                    port, input, e
+                )))
+            })?;
             Ok(OneOf::new(SocketAddr::from((host, port))))
         }
         (Some(host), None) => {
-            let host = host.parse::<Ipv4Addr>().map_err(OneOf::new)?;
+            let host = host.parse::<Ipv4Addr>().map_err(|e| {
+                OneOf::new(anyhow::Error::msg(format!(
+                    "Failed to parse IPv4 address '{}': {}",
+                    input, e
+                )))
+            })?;
             Ok(OneOf::new(IpAddr::V4(host)))
         }
         (None, Some(port)) => {
-            let port = port.parse::<u16>().map_err(OneOf::new)?;
+            let port = port.parse::<u16>().map_err(|e| {
+                OneOf::new(anyhow::Error::msg(format!(
+                    "Failed to parse port '{}' in address '{}': {}",
+                    port, input, e
+                )))
+            })?;
             Ok(OneOf::new(port))
         }
         (None, None) => Err(OneOf::new(anyhow::Error::msg(format!(

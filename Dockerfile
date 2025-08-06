@@ -18,14 +18,13 @@ WORKDIR /usr/src/glim
 COPY ./Cargo.toml ./Cargo.lock* ./build.rs ./card.svg ./
 
 # Build empty app with downloaded dependencies to produce a stable image layer for next build
-# Note: Docker image builds server-only version (no CLI dependencies)
-RUN cargo build --release --no-default-features --features server
+RUN cargo build --release
 
 # Build web app with own code
 RUN rm src/*.rs
 COPY ./src ./src
 RUN rm ./target/release/deps/glim*
-RUN cargo build --release --no-default-features --features server
+RUN cargo build --release
 
 # Strip the binary to reduce size
 RUN strip target/release/glim
@@ -77,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 ENV HOSTS=0.0.0.0,[::]
 
 # Implicitly uses PORT environment variable
-CMD ["sh", "-c", "exec ./glim ${HOSTS}"]
+CMD ["sh", "-c", "exec ./glim --server ${HOSTS}"]

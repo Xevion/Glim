@@ -1,5 +1,4 @@
 pub mod cache;
-#[cfg(feature = "cli")]
 pub mod cli;
 pub mod colors;
 pub mod config;

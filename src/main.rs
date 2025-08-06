@@ -4,6 +4,7 @@
 //! that display GitHub repository information in a clean, visual format.
 
 pub mod cache;
+pub mod cli;
 pub mod colors;
 pub mod config;
 pub mod encode;
@@ -13,8 +14,6 @@ pub mod image;
 pub mod ratelimit;
 pub mod server;
 
-#[cfg(feature = "cli")]
-pub mod cli;
 use crate::errors::Result;
 use std::net::SocketAddr;
 use tracing_subscriber::FmtSubscriber;
@@ -59,71 +58,38 @@ fn get_addresses(addr: &str, default_port: u16) -> Result<Vec<SocketAddr>> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    #[cfg(feature = "cli")]
-    {
-        use clap::Parser;
+    use clap::Parser;
 
-        let cli = cli::Cli::parse();
+    let cli = cli::Cli::parse();
 
-        let subscriber = FmtSubscriber::builder()
-            .with_max_level(cli.log_level)
-            .finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(cli.log_level)
+        .finish();
 
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("setting default subscriber failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-        if let Some(addr_argument) = cli.server.as_ref() {
-            // Load configuration with CLI overrides
-            let cli_overrides = config::CliOverrides::from_cli_args(cli.token, cli.port);
-            let config = config::Config::load(Some(cli_overrides));
+    if let Some(addr_argument) = cli.server.as_ref() {
+        // Load configuration with CLI overrides
+        let cli_overrides = config::CliOverrides::from_cli_args(cli.token, cli.port);
+        let config = config::Config::load(Some(cli_overrides));
 
-            let addrs = addr_argument.as_ref().map_or(
-                Ok(vec![SocketAddr::new(
-                    config.default_host(),
-                    config.default_port(),
-                )]),
-                // If an argument is provided, use it
-                |addr| get_addresses(addr, config.default_port()),
-            )?;
+        let addrs = addr_argument.as_ref().map_or(
+            Ok(vec![SocketAddr::new(
+                config.default_host(),
+                config.default_port(),
+            )]),
+            // If an argument is provided, use it
+            |addr| get_addresses(addr, config.default_port()),
+        )?;
 
-            if let Some(Err(e)) = server::start_server(addrs, config).await {
-                tracing::error!("Server error: {}", e);
-                return Err(crate::errors::GlimError::General(e));
-            }
-        } else if cli.repository.is_some() {
-            cli::run(cli).await?;
-        } else {
-            tracing::error!("Please provide a repository or start the server with --server.");
+        if let Some(Err(e)) = server::start_server(addrs, config).await {
+            tracing::error!("Server error: {}", e);
+            return Err(crate::errors::GlimError::General(e));
         }
-    }
-
-    #[cfg(not(feature = "cli"))]
-    {
-        // Server-only mode
-        let subscriber = FmtSubscriber::builder()
-            .with_max_level(tracing::Level::INFO)
-            .finish();
-
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("setting default subscriber failed");
-
-        // Parse command line arguments manually for server address
-        let args: Vec<String> = std::env::args().collect();
-        let server_addr = args.get(1).cloned();
-
-        // Load configuration
-        let config = config::Config::load(None);
-
-        if let Some(addr) = server_addr {
-            if let Some(Err(e)) =
-                server::start_server(get_addresses(&addr, config.default_port())?, config).await
-            {
-                tracing::error!("Server error: {}", e);
-                return Err(crate::errors::GlimError::General(e));
-            }
-        } else {
-            tracing::error!("Please provide a server address or enable the 'cli' feature.");
-        }
+    } else if cli.repository.is_some() {
+        cli::run(cli).await?;
+    } else {
+        tracing::error!("Please provide a repository or start the server with --server.");
     }
 
     Ok(())

@@ -8,7 +8,7 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.target.target }}, ${{ matrix.feature }})
+    name: Build (${{ matrix.target.target }})
     runs-on: ${{ matrix.target.os }}
     strategy:
       fail-fast: false
@@ -38,7 +38,6 @@ jobs:
             target: aarch64-pc-windows-msvc
             test: false # cross-compilation is not required, but we can't test it natively
             cross: false
-        feature: [cli, server]
     steps:
       - uses: actions/checkout@v4
 
@@ -58,11 +57,11 @@ jobs:
 
       - name: Build project (native)
         if: ${{ matrix.target.cross == false }}
-        run: cargo build --release --target ${{ matrix.target.target }} --features ${{ matrix.feature }}
+        run: cargo build --release --target ${{ matrix.target.target }}
 
       - name: Build project (cross-compilation)
         if: ${{ matrix.target.cross == true }}
-        run: cross build --release --target=${{ matrix.target.target }} --features ${{ matrix.feature }},vendored-openssl
+        run: cross build --release --target=${{ matrix.target.target }} --features vendored-openssl
 
       - name: Install nextest
         if: ${{ matrix.target.test == true && matrix.target.cross == false }}
@@ -70,16 +69,16 @@ jobs:
 
       - name: Run tests (native)
         if: ${{ matrix.target.test == true && matrix.target.cross == false }}
-        run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }} --profile ci
+        run: cargo nextest run --verbose --target ${{ matrix.target.target }} --profile ci
 
       - name: Run tests (cross-compiled)
         if: ${{ matrix.target.test == true && matrix.target.cross == true }}
-        run: cross test --verbose --features ${{ matrix.feature }},vendored-openssl,no-threading-tests --target ${{ matrix.target.target }}
+        run: cross test --verbose --features vendored-openssl,no-threading-tests --target ${{ matrix.target.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: glim-${{ matrix.target.target }}-${{ matrix.feature }}
+          name: glim-${{ matrix.target.target }}
           path: |
             target/${{ matrix.target.target }}/release/glim
             target/${{ matrix.target.target }}/release/glim.exe

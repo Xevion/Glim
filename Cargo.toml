@@ -14,6 +14,7 @@ default = ["cli", "server"]
 cli = ["clap"]
 server = ["axum", "tower-http", "moka/future"]
 vendored-openssl = ["reqwest/native-tls-vendored"]
+no-threading-tests = []  # Exclude tests that spawn multiple threads (for cross compilation)
 
 [dependencies]
 anyhow = "1.0.98"

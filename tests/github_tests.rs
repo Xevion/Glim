@@ -460,6 +460,7 @@ async fn test_cache_ttl_behavior() {
 }
 
 // Test concurrent access to cache
+#[cfg(not(feature = "no-threading-tests"))]
 #[tokio::test]
 async fn test_cache_concurrent_access() {
     use glim::github::{CacheEntry, GitHubClient};

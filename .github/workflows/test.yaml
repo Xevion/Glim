@@ -70,11 +70,11 @@ jobs:
 
       - name: Run tests (native)
         if: ${{ matrix.target.test == true && matrix.target.cross == false }}
-        run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }}
+        run: cargo nextest run --verbose --features ${{ matrix.feature }} --target ${{ matrix.target.target }} --profile ci
 
       - name: Run tests (cross-compiled)
         if: ${{ matrix.target.test == true && matrix.target.cross == true }}
-        run: cross test --verbose --features ${{ matrix.feature }},vendored-openssl --target ${{ matrix.target.target }}
+        run: cross test --verbose --features ${{ matrix.feature }},vendored-openssl,no-threading-tests --target ${{ matrix.target.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -35,12 +35,54 @@ jobs:
         run: |
           set -euxo pipefail
 
-          # Test server startup
-          docker run -d --name test-server -p 8000:8000 -e HOSTS=0.0.0.0:8000 glim-test
+          # Generate health check token
+          HEALTHCHECK_TOKEN=$(openssl rand -hex 64)
+          echo "Generated health check token: ${HEALTHCHECK_TOKEN}"
+
+          # Test server startup with debug logging
+          docker run -d --name test-server \
+            -p 8000:8000 \
+            -e HOSTS=0.0.0.0:8000 \
+            -e HEALTHCHECK_TOKEN=${HEALTHCHECK_TOKEN} \
+            -e RUST_LOG=debug \
+            -e LOG_LEVEL=debug \
+            glim-test
 
           # Wait for server to start with retry logic
           for i in {1..30}; do
-            if curl -f -s http://0.0.0.0:8000/health > /dev/null 2>&1; then
+            echo "Attempt $i: Testing health endpoint..."
+
+            # Test with verbose curl to see what's happening
+            RESPONSE=$(curl -v -f -s -w "\nHTTP_CODE:%{http_code}\nTOTAL_TIME:%{time_total}\n" \
+              -H "Authorization: Bearer ${HEALTHCHECK_TOKEN}" \
+              http://0.0.0.0:8000/health 2>&1) || {
+              echo "Curl failed with exit code $?"
+              echo "Full curl response:"
+              echo "$RESPONSE"
+
+              # Check if it's a 401 (unauthorized)
+              if echo "$RESPONSE" | grep -q "HTTP_CODE:401"; then
+                echo "::error::Health endpoint returned 401 Unauthorized - authentication required"
+                echo "=== Container logs ==="
+                docker logs test-server
+                echo "=== End container logs ==="
+                exit 1
+              fi
+
+              # Check if it's a timeout
+              if echo "$RESPONSE" | grep -q "timeout\|Connection refused"; then
+                echo "Connection timeout or refused - server may not be ready yet"
+              else
+                echo "::error::Unexpected curl error"
+                echo "=== Container logs ==="
+                docker logs test-server
+                echo "=== End container logs ==="
+                exit 1
+              fi
+            }
+
+            # Check if we got a successful response
+            if echo "$RESPONSE" | grep -q "HTTP_CODE:200"; then
               echo "Server is ready after $i seconds"
               if [ $i -gt 8 ]; then
                 echo "::warning::Server took longer than expected to start ($i seconds)"
@@ -58,21 +100,33 @@ jobs:
             sleep 1
           done
 
-          # Test health endpoint
-          if ! curl -f http://0.0.0.0:8000/health; then
+          # Test health endpoint with proper logging
+          echo "Testing health endpoint..."
+          if ! curl -v -f -H "Authorization: Bearer ${HEALTHCHECK_TOKEN}" http://0.0.0.0:8000/health; then
             echo "::error::Health endpoint test failed"
+            echo "=== Container logs ==="
+            docker logs test-server
+            echo "=== End container logs ==="
             exit 1
           fi
 
           # Test main endpoint (should redirect)
-          if ! curl -f -I http://0.0.0.0:8000/; then
+          echo "Testing main endpoint..."
+          if ! curl -v -f -I http://0.0.0.0:8000/; then
             echo "::error::Main endpoint test failed"
+            echo "=== Container logs ==="
+            docker logs test-server
+            echo "=== End container logs ==="
             exit 1
           fi
 
           # Test image generation
-          if ! curl -f -o test-image.png -w "%{http_code}" http://0.0.0.0:8000/Xevion/Glim.png | grep -q "200"; then
+          echo "Testing image generation..."
+          if ! curl -v -f -o test-image.png -w "%{http_code}" http://0.0.0.0:8000/Xevion/Glim.png | grep -q "200"; then
             echo "::error::Image generation test failed"
+            echo "=== Container logs ==="
+            docker logs test-server
+            echo "=== End container logs ==="
             exit 1
           fi
 

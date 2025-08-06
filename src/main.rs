@@ -26,23 +26,31 @@ const DEFAULT_PORT: u16 = 8080;
 ///
 /// If no port is provided, use 8080. Works for both IPv4 and IPv6.
 /// If no host is provided, defaults to IPv4 at 127.0.0.1.
+/// Multiple addresses can be provided, separated by commas.
 ///
 /// # Errors
 ///
-/// Returns an error if the address is invalid.
-fn get_address(addr: &str) -> Result<SocketAddr> {
-    match server::parse_address_components(addr) {
-        Ok(value) => match value.to_enum() {
-            terrors::E3::A(addr) => Ok(addr),
-            terrors::E3::B(ip) => Ok(SocketAddr::from((ip, DEFAULT_PORT))),
-            terrors::E3::C(port) => Ok(SocketAddr::from((DEFAULT_HOST, port))),
-        },
-        Err(value) => match value.to_enum() {
-            terrors::E3::A(e) => return Err(e.into()),
-            terrors::E3::B(e) => return Err(e.into()),
-            terrors::E3::C(e) => return Err(e.into()),
-        },
-    }
+/// Returns an error if any address is invalid.
+fn get_addresses(addr: &str) -> Result<Vec<SocketAddr>> {
+    let addresses: Vec<Result<SocketAddr>> = addr
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| match server::parse_address_components(s) {
+            Ok(value) => match value.to_enum() {
+                terrors::E3::A(addr) => Ok(addr),
+                terrors::E3::B(ip) => Ok(SocketAddr::from((ip, DEFAULT_PORT))),
+                terrors::E3::C(port) => Ok(SocketAddr::from((DEFAULT_HOST, port))),
+            },
+            Err(value) => match value.to_enum() {
+                terrors::E3::A(e) => Err(e.into()),
+                terrors::E3::B(e) => Err(e.into()),
+                terrors::E3::C(e) => Err(e.into()),
+            },
+        })
+        .collect();
+
+    addresses.into_iter().collect()
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -61,13 +69,16 @@ async fn main() -> Result<()> {
 
         if let Some(addr_argument) = cli.server.as_ref() {
             // If no address is provided, use the default address
-            let addr = addr_argument.as_ref().map_or(
-                Ok(SocketAddr::new(DEFAULT_HOST, DEFAULT_PORT)),
+            let addrs = addr_argument.as_ref().map_or(
+                Ok(vec![SocketAddr::new(DEFAULT_HOST, DEFAULT_PORT)]),
                 // If an argument is provided, use it
-                |addr| get_address(addr),
+                |addr| get_addresses(addr),
             )?;
 
-            server::start_server(addr).await;
+            if let Some(Err(e)) = server::start_server(addrs).await {
+                tracing::error!("Server error: {}", e);
+                return Err(crate::errors::GlimError::General(e));
+            }
         } else if cli.repository.is_some() {
             cli::run(cli).await?;
         } else {
@@ -90,7 +101,10 @@ async fn main() -> Result<()> {
         let server_addr = args.get(1).cloned();
 
         if let Some(addr) = server_addr {
-            server::start_server(get_address(&addr)?).await;
+            if let Some(Err(e)) = server::start_server(get_addresses(&addr)?).await {
+                tracing::error!("Server error: {}", e);
+                return Err(crate::errors::GlimError::General(e));
+            }
         } else {
             tracing::error!("Please provide a server address or enable the 'cli' feature.");
         }

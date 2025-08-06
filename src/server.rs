@@ -105,11 +105,26 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
     response
 }
 
-/// Starts the HTTP server with graceful shutdown.
+/// Starts the HTTP server with graceful shutdown on multiple addresses.
 ///
 /// # Arguments
-/// * `address` - Server address (e.g., "127.0.0.1:8000")
-pub async fn start_server(address: SocketAddr) {
+/// * `addresses` - Vector of server addresses to bind to
+///
+/// # Returns
+/// * `None` - Server was interrupted (Ctrl+C)
+/// * `Some(Err)` - Server encountered an error
+pub async fn start_server(addresses: Vec<SocketAddr>) -> Option<Result<(), anyhow::Error>> {
+    // Check for duplicate addresses
+    let mut seen = std::collections::HashSet::new();
+    for addr in &addresses {
+        if !seen.insert(addr) {
+            return Some(Err(anyhow::Error::msg(format!(
+                "Duplicate address found: {}",
+                addr
+            ))));
+        }
+    }
+
     let rate_limiter = RateLimiter::new(RateLimitConfig::default());
     let app_state = AppState { rate_limiter };
 
@@ -121,27 +136,79 @@ pub async fn start_server(address: SocketAddr) {
         .layer(middleware::from_fn(add_server_header))
         .with_state(app_state);
 
-    let listener = match tokio::net::TcpListener::bind(address).await {
-        Ok(listener) => listener,
-        Err(e) => {
-            tracing::error!("Failed to bind to address '{}': {}", address, e);
-            return;
+    // Bind to all addresses and collect listeners
+    let mut listeners = Vec::new();
+    for address in &addresses {
+        match tokio::net::TcpListener::bind(address).await {
+            Ok(listener) => listeners.push((address, listener)),
+            Err(e) => {
+                return Some(Err(anyhow::Error::msg(format!(
+                    "Failed to bind to address '{}': {}",
+                    address, e
+                ))));
+            }
         }
-    };
+    }
 
-    let server = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    );
-
-    let graceful = server.with_graceful_shutdown(shutdown_signal());
+    // Create axum servers for each listener
+    let mut servers = Vec::new();
+    for (address, listener) in listeners {
+        let server = axum::serve(
+            listener,
+            app.clone()
+                .into_make_service_with_connect_info::<SocketAddr>(),
+        );
+        servers.push((address, server));
+    }
 
     info!(
-        address = ?address,
-        "Server starting, press Ctrl+C to shut down.");
+        addresses = ?addresses,
+        "Server starting on {} address(es), press Ctrl+C to shut down.",
+        addresses.len()
+    );
 
-    if let Err(e) = graceful.await {
-        tracing::error!("Server error: {}", e);
+    // Setup shutdown broadcast channel for coordinated graceful shutdown
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
+
+    // Spawn server tasks with graceful shutdown capability
+    let mut handles: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+    for (address, server) in servers {
+        let address_clone = *address;
+        let mut shutdown_rx = shutdown_tx.subscribe();
+
+        // Configure graceful shutdown to wait for broadcast signal
+        let graceful = server.with_graceful_shutdown(async move {
+            let _ = shutdown_rx.recv().await;
+        });
+
+        // Spawn each server in its own task
+        let handle = tokio::spawn(async move {
+            if let Err(e) = graceful.await {
+                tracing::error!("Server error on {}: {}", address_clone, e);
+                return Err(anyhow::Error::msg(e.to_string()));
+            }
+            Ok(())
+        });
+        handles.push(handle);
+    }
+
+    // Wait for either all servers to complete or shutdown signal
+    let server_future = async {
+        // Wait for all handles and fail fast if any server fails
+        for handle in handles {
+            if let Err(e) = handle.await {
+                return Some(Err(anyhow::Error::msg(e.to_string())));
+            }
+        }
+        None
+    };
+
+    tokio::select! {
+        result = server_future => result,
+        _ = shutdown_signal() => {
+            let _ = shutdown_tx.send(());
+            None // Interrupt occurred
+        }
     }
 }
 
@@ -511,6 +578,8 @@ impl ImageGenerationTiming {
 /// # Examples
 ///
 /// ```
+/// use glim::server::parse_address_components;
+///
 /// // Full socket address
 /// let result = parse_address_components("127.0.0.1:8080");
 /// // Returns Ok(OneOf::A(SocketAddr))

@@ -33,8 +33,7 @@ pub struct Cli {
     #[arg(
         short,
         long,
-        value_name = "HOST:PORT",
-
+        value_name = "HOST:PORT[,HOST:PORT[,...]]",
         num_args = 0..=1,
         require_equals = false
     )]

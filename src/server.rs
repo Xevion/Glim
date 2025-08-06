@@ -11,7 +11,9 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use socket2::{Domain, Socket, Type};
 use std::{
+    collections::HashSet,
     io::Cursor,
     net::{IpAddr, Ipv4Addr},
     num::ParseIntError,
@@ -105,6 +107,16 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
     response
 }
 
+/// Checks if the system is configured to bind to IPv6 only.
+///
+/// This function creates a temporary IPv6 socket and checks the `IPV6_V6ONLY`
+/// socket option. This is a cross-platform way to determine if binding to an
+/// IPv6 socket will also bind to the corresponding IPv4 address.
+fn is_ipv6_only() -> std::io::Result<bool> {
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, None)?;
+    socket.only_v6()
+}
+
 /// Starts the HTTP server with graceful shutdown on multiple addresses.
 ///
 /// # Arguments
@@ -113,15 +125,46 @@ async fn add_server_header(request: axum::extract::Request, next: Next) -> Respo
 /// # Returns
 /// * `None` - Server was interrupted (Ctrl+C)
 /// * `Some(Err)` - Server encountered an error
-pub async fn start_server(addresses: Vec<SocketAddr>) -> Option<Result<(), anyhow::Error>> {
-    // Check for duplicate addresses
-    let mut seen = std::collections::HashSet::new();
-    for addr in &addresses {
-        if !seen.insert(addr) {
-            return Some(Err(anyhow::Error::msg(format!(
-                "Duplicate address found: {}",
-                addr
-            ))));
+pub async fn start_server(mut addresses: Vec<SocketAddr>) -> Option<Result<(), anyhow::Error>> {
+    if addresses.is_empty() {
+        return Some(Err(anyhow::Error::msg("No addresses provided")));
+    }
+
+    {
+        // Check for duplicate addresses
+        let mut seen = HashSet::new();
+        for addr in &addresses {
+            if !seen.insert(addr) {
+                return Some(Err(anyhow::Error::msg(format!(
+                    "Explicit duplicate address found: {}",
+                    addr
+                ))));
+            }
+        }
+    }
+
+    // If we are binding to an IPv6 address, and the system is not configured
+    // to bind to IPv6 only, then we should filter out any IPv4 addresses on
+    // the same port.
+    if addresses.iter().any(|a| a.is_ipv6()) {
+        if let Ok(false) = is_ipv6_only() {
+            let ipv6_ports: HashSet<u16> = addresses
+                .iter()
+                .filter(|a| a.is_ipv6())
+                .map(|a| a.port())
+                .collect();
+
+            addresses.retain(|a| {
+                if a.is_ipv4() && ipv6_ports.contains(&a.port()) {
+                    tracing::warn!(
+                        "Ignoring IPv4 address {} because it conflicts with an IPv6 address on the same port due to IPv6 dual-stack.",
+                        a
+                    );
+                    false
+                } else {
+                    true
+                }
+            });
         }
     }
 

@@ -74,7 +74,7 @@ jobs:
 
       - name: Test image size
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           # Check Docker image size against limits
           # Usage: check_image_size <image_name> <max_size_str>
@@ -112,11 +112,15 @@ jobs:
 
           # Check image size - capture return code, not output
           check_image_size "glim-test" "100M"
+
+          # Handle return code
           if [ $? -ge 1 ]; then
             echo "::error::Image is too large"
             exit 1
           elif [ $? -eq 2 ]; then
             echo "::warning::Image is within 10% of the limit"
+            exit 0  # required, otherwise the function call above will provide the exit code '2'
           elif [ $? -eq -1 ]; then
             echo "::warning::Image size check failed"
+            exit 1
           fi

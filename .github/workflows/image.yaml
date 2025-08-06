@@ -19,6 +19,8 @@ jobs:
 
       - name: Test image functionality
         run: |
+          set -euxo pipefail
+
           # Test server startup
           docker run -d --name test-server -p 8000:8000 glim-test
 
@@ -69,6 +71,8 @@ jobs:
 
       - name: Test image size
         run: |
+          set -euxo pipefail
+
           # Check Docker image size against limits
           # Usage: check_image_size <image_name> <max_size_str>
           # Returns: 0=OK, 1=too large, 2=warning (>90% of limit), -1=error

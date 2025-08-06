@@ -4,6 +4,18 @@
 
 # Glim
 
+[![Tests Status][badge-test]][test] [![Online Demo][badge-online-demo]][demo] [![Last Commit][badge-last-commit]][commits]
+
+[badge-test]: https://github.com/Xevion/Glim/actions/workflows/test.yaml/badge.svg
+[badge-online-demo]: https://img.shields.io/github/deployments/Xevion/Glim/production?logo=railway&label=deploy&labelColor=13111c
+[badge-last-commit]: https://img.shields.io/github/last-commit/Xevion/Glim
+[test]: https://github.com/Xevion/Glim/actions/workflows/test.yaml
+[demo]: https://gh.xevion.dev/Xevion/Glim.png
+[commits]: https://github.com/Xevion/Glim/commits/master
+
+<!-- [badge-coverage]: https://coveralls.io/repos/github/Xevion/Glim/badge.svg?branch=master -->
+<!-- [coverage]: https://coveralls.io/github/Xevion/Glim?branch=master -->
+
 Glīm (pronounced 'gleem') is a command-line tool and web-server for generating beautiful, dynamic cards for your GitHub repositories.
 
 The name comes from an Old English word meaning a small gleam of light, representing how each card captures the brilliance of your project.
@@ -42,22 +54,6 @@ When creating a GitHub personal access token for Glim, **do not add any scopes**
 For most users, **no token is required** as Glim works perfectly with public repositories using anonymous API access.
 
 If you'd like to use a token anyways, you can create one in the **Settings** > **Developer settings** > **Personal access tokens** > [Fine-grained tokens](https://github.com/settings/personal-access-tokens) page. I strongly recommend that you do not click on any scopes, and do not change the default Repository access from 'Public repositories'.
-
-## Building
-
-To build the project from source, you'll need to have Rust and Cargo installed.
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/Xevion/glim.git
-    cd glim
-    cargo build --release
-    ```
-2.  The executable will be located in `target/release/glim`.
-
-## Contributing
-
-Contributions are welcome! Please feel free to open an issue or submit a pull request.
 
 ## License
 

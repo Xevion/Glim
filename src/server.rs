@@ -44,6 +44,10 @@ use once_cell::sync::Lazy;
 /// Lazy-loaded healthcheck token from environment variable
 static HEALTHCHECK_TOKEN: Lazy<Option<String>> = Lazy::new(|| env::var("HEALTHCHECK_TOKEN").ok());
 
+/// Lazy-loaded hostname that should bypass healthcheck authorization
+static HEALTHCHECK_HOST_BYPASS: Lazy<Option<String>> =
+    Lazy::new(|| env::var("HEALTHCHECK_HOST_BYPASS").ok());
+
 /// Error response structure for JSON error responses
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
@@ -364,10 +368,22 @@ async fn status_handler(State(state): State<AppState>) -> Response {
 /// Check if the request is authorized for health check access.
 ///
 /// Authorization logic:
+/// - Configured hostname bypass: bypass authorization when coming from HEALTHCHECK_HOST_BYPASS
 /// - In debug mode: allow access if no token configured, validate if configured
 /// - In release mode: require valid token if HEALTHCHECK_TOKEN is configured
 /// - Token can be provided via Authorization Bearer header or 'token' query parameter
 fn is_health_check_authorized(headers: &HeaderMap, query: &HealthQuery) -> bool {
+    // Check if this is a request from a configured bypass hostname
+    if let Some(bypass_hostname) = HEALTHCHECK_HOST_BYPASS.as_ref() {
+        if let Some(host_header) = headers.get("host") {
+            if let Ok(host_str) = host_header.to_str() {
+                if host_str == bypass_hostname {
+                    return true; // Allow healthchecks from configured hostname to bypass authorization
+                }
+            }
+        }
+    }
+
     let expected_token = match HEALTHCHECK_TOKEN.as_ref() {
         Some(token) => token,
         None => {

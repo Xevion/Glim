@@ -12,61 +12,6 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{debug, warn};
 
-/// Time provider trait for mocking in tests
-#[cfg(test)]
-pub trait TimeProvider {
-    fn now(&self) -> Instant;
-    fn advance(&mut self, duration: Duration);
-}
-
-/// Real time provider for production
-#[cfg(test)]
-pub struct RealTimeProvider;
-
-#[cfg(test)]
-impl TimeProvider for RealTimeProvider {
-    fn now(&self) -> Instant {
-        Instant::now()
-    }
-
-    fn advance(&mut self, _duration: Duration) {
-        // No-op for real time
-    }
-}
-
-/// Mock time provider for tests
-#[cfg(test)]
-pub struct MockTimeProvider {
-    current_time: Instant,
-}
-
-#[cfg(test)]
-impl MockTimeProvider {
-    pub fn new() -> Self {
-        Self {
-            current_time: Instant::now(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl Default for MockTimeProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-impl TimeProvider for MockTimeProvider {
-    fn now(&self) -> Instant {
-        self.current_time
-    }
-
-    fn advance(&mut self, duration: Duration) {
-        self.current_time += duration;
-    }
-}
-
 /// Configuration for rate limiting
 #[derive(Clone, Debug)]
 pub struct RateLimitConfig {
@@ -92,16 +37,6 @@ impl Default for RateLimitConfig {
 }
 
 /// Token bucket for rate limiting
-#[cfg(test)]
-pub struct TokenBucket {
-    tokens: AtomicU32,
-    max_tokens: u32,
-    refill_rate: u32, // tokens per refill interval
-    last_refill: RwLock<Instant>,
-    time_provider: Arc<RwLock<Box<dyn TimeProvider + Send + Sync>>>,
-}
-
-#[cfg(not(test))]
 struct TokenBucket {
     tokens: AtomicU32,
     max_tokens: u32,
@@ -128,7 +63,6 @@ impl std::fmt::Debug for TokenBucket {
 }
 
 impl TokenBucket {
-    #[cfg(not(test))]
     fn new(max_tokens: u32, refill_rate: u32) -> Self {
         Self {
             tokens: AtomicU32::new(max_tokens),
@@ -138,34 +72,7 @@ impl TokenBucket {
         }
     }
 
-    #[cfg(test)]
-    pub fn new(max_tokens: u32, refill_rate: u32) -> Self {
-        Self {
-            tokens: AtomicU32::new(max_tokens),
-            max_tokens,
-            refill_rate,
-            last_refill: RwLock::new(Instant::now()),
-            time_provider: Arc::new(RwLock::new(Box::new(RealTimeProvider))),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new_with_time_provider(
-        max_tokens: u32,
-        refill_rate: u32,
-        time_provider: Box<dyn TimeProvider + Send + Sync>,
-    ) -> Self {
-        Self {
-            tokens: AtomicU32::new(max_tokens),
-            max_tokens,
-            refill_rate,
-            last_refill: RwLock::new(Instant::now()),
-            time_provider: Arc::new(RwLock::new(time_provider)),
-        }
-    }
-
     /// Try to consume a token. Returns true if successful, false if rate limited.
-    #[cfg(not(test))]
     async fn try_consume(&self) -> bool {
         self.refill().await;
 
@@ -192,70 +99,8 @@ impl TokenBucket {
         }
     }
 
-    #[cfg(test)]
-    pub async fn try_consume(&self) -> bool {
-        self.refill().await;
-
-        // Use a loop instead of recursion to avoid boxing
-        loop {
-            let current_tokens = self.tokens.load(Ordering::Acquire);
-            if current_tokens > 0 {
-                // Try to decrement atomically
-                match self.tokens.compare_exchange_weak(
-                    current_tokens,
-                    current_tokens - 1,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => return true,
-                    Err(_) => {
-                        // Someone else consumed the token, try again
-                        continue;
-                    }
-                }
-            } else {
-                return false;
-            }
-        }
-    }
-
     /// Refill tokens based on elapsed time
-    #[cfg(not(test))]
     async fn refill(&self) {
-        let now = Instant::now();
-
-        let mut last_refill = self.last_refill.write().await;
-
-        let elapsed = now.duration_since(*last_refill);
-        if elapsed >= Duration::from_secs(1) {
-            let seconds_passed = elapsed.as_secs() as u32;
-            let tokens_to_add = seconds_passed * self.refill_rate;
-
-            if tokens_to_add > 0 {
-                let current_tokens = self.tokens.load(Ordering::Acquire);
-                let new_tokens = (current_tokens + tokens_to_add).min(self.max_tokens);
-                self.tokens.store(new_tokens, Ordering::Release);
-                *last_refill = now;
-
-                // Only log if we actually added tokens and it's significant
-                if tokens_to_add > 0 && current_tokens < self.max_tokens / 2 {
-                    debug!(
-                        "Refilled {} tokens, current: {}/{}",
-                        tokens_to_add, new_tokens, self.max_tokens
-                    );
-                }
-            }
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn refill(&self) {
-        #[cfg(test)]
-        let now = {
-            let time_provider = self.time_provider.read().await;
-            time_provider.now()
-        };
-        #[cfg(not(test))]
         let now = Instant::now();
 
         let mut last_refill = self.last_refill.write().await;
@@ -285,13 +130,6 @@ impl TokenBucket {
     /// Get current token count (for monitoring)
     fn current_tokens(&self) -> u32 {
         self.tokens.load(Ordering::Acquire)
-    }
-
-    #[cfg(test)]
-    /// Advance time for testing
-    pub async fn advance_time(&self, duration: Duration) {
-        let mut time_provider = self.time_provider.write().await;
-        time_provider.advance(duration);
     }
 }
 

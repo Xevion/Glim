@@ -104,3 +104,73 @@ fn test_error_response_structure() {
     assert!(json.contains("Failed to get repository info"));
     assert!(json.contains("404"));
 }
+
+#[test]
+fn test_parse_scale_parameter() {
+    use glim::server::{parse_scale_parameter, ImageQuery};
+
+    // Test valid scale parameters
+    let query = ImageQuery {
+        scale: Some("1.5".to_string()),
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), Some(1.5));
+
+    let query = ImageQuery {
+        scale: None,
+        s: Some("2.0".to_string()),
+    };
+    assert_eq!(parse_scale_parameter(&query), Some(2.0));
+
+    // Test fallback from scale to s
+    let query = ImageQuery {
+        scale: None,
+        s: Some("1.2".to_string()),
+    };
+    assert_eq!(parse_scale_parameter(&query), Some(1.2));
+
+    // Test invalid parameters
+    let query = ImageQuery {
+        scale: Some("0.05".to_string()), // Below minimum - gets clamped to 0.1
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), Some(0.1));
+
+    let query = ImageQuery {
+        scale: Some("12345678901".to_string()), // Too long after trimming (>10 chars)
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), None);
+
+    let query = ImageQuery {
+        scale: Some("abc".to_string()), // Invalid number
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), None);
+
+    // Test no parameters
+    let query = ImageQuery {
+        scale: None,
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), None);
+}
+
+#[test]
+fn test_scale_parameter_length_validation() {
+    use glim::server::{parse_scale_parameter, ImageQuery};
+
+    // Test that trailing zeros are trimmed correctly
+    let query = ImageQuery {
+        scale: Some("1.2000".to_string()),
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), Some(1.2));
+
+    // Test that long strings are rejected (>10 chars after trimming)
+    let query = ImageQuery {
+        scale: Some("1.2345678901".to_string()),
+        s: None,
+    };
+    assert_eq!(parse_scale_parameter(&query), None);
+}

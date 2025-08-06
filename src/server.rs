@@ -39,14 +39,6 @@ use crate::{
     image::{self, ImageFormat},
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
-use once_cell::sync::Lazy;
-
-/// Lazy-loaded healthcheck token from environment variable
-static HEALTHCHECK_TOKEN: Lazy<Option<String>> = Lazy::new(|| env::var("HEALTHCHECK_TOKEN").ok());
-
-/// Lazy-loaded hostname that should bypass healthcheck authorization
-static HEALTHCHECK_HOST_BYPASS: Lazy<Option<String>> =
-    Lazy::new(|| env::var("HEALTHCHECK_HOST_BYPASS").ok());
 
 /// Error response structure for JSON error responses
 #[derive(Debug, Serialize)]
@@ -129,11 +121,12 @@ pub struct ImageQuery {
     pub s: Option<String>,
 }
 
-/// Application state containing the rate limiter and startup time
+/// Application state containing the rate limiter, startup time, and configuration
 #[derive(Clone, Debug)]
 struct AppState {
     rate_limiter: RateLimiter,
     startup_time: Instant,
+    config: crate::config::Config,
 }
 
 /// Middleware to add Server header to all responses
@@ -167,11 +160,15 @@ fn is_ipv6_only() -> std::io::Result<bool> {
 ///
 /// # Arguments
 /// * `addresses` - Vector of server addresses to bind to
+/// * `config` - Application configuration
 ///
 /// # Returns
 /// * `None` - Server was interrupted (Ctrl+C)
 /// * `Some(Err)` - Server encountered an error
-pub async fn start_server(mut addresses: Vec<SocketAddr>) -> Option<Result<(), anyhow::Error>> {
+pub async fn start_server(
+    mut addresses: Vec<SocketAddr>,
+    config: crate::config::Config,
+) -> Option<Result<(), anyhow::Error>> {
     if addresses.is_empty() {
         return Some(Err(anyhow::Error::msg("No addresses provided")));
     }
@@ -218,6 +215,7 @@ pub async fn start_server(mut addresses: Vec<SocketAddr>) -> Option<Result<(), a
     let app_state = AppState {
         rate_limiter,
         startup_time: Instant::now(),
+        config,
     };
 
     let app = Router::new()
@@ -368,13 +366,18 @@ async fn status_handler(State(state): State<AppState>) -> Response {
 /// Check if the request is authorized for health check access.
 ///
 /// Authorization logic:
-/// - Configured hostname bypass: bypass authorization when coming from HEALTHCHECK_HOST_BYPASS
+/// - Configured hostname bypass: bypass authorization when coming from configured hostname
 /// - In debug mode: allow access if no token configured, validate if configured
-/// - In release mode: require valid token if HEALTHCHECK_TOKEN is configured
+/// - In release mode: require valid token if token is configured
 /// - Token can be provided via Authorization Bearer header or 'token' query parameter
-fn is_health_check_authorized(headers: &HeaderMap, query: &HealthQuery) -> bool {
+fn is_health_check_authorized(
+    headers: &HeaderMap,
+    query: &HealthQuery,
+    expected_token: Option<&str>,
+    bypass_hostname: Option<&str>,
+) -> bool {
     // Check if this is a request from a configured bypass hostname
-    if let Some(bypass_hostname) = HEALTHCHECK_HOST_BYPASS.as_ref() {
+    if let Some(bypass_hostname) = bypass_hostname {
         if let Some(host_header) = headers.get("host") {
             if let Ok(host_str) = host_header.to_str() {
                 if host_str == bypass_hostname {
@@ -384,7 +387,7 @@ fn is_health_check_authorized(headers: &HeaderMap, query: &HealthQuery) -> bool 
         }
     }
 
-    let expected_token = match HEALTHCHECK_TOKEN.as_ref() {
+    let expected_token = match expected_token {
         Some(token) => token,
         None => {
             // No token configured
@@ -439,7 +442,12 @@ async fn health_handler(
     Query(query): Query<HealthQuery>,
 ) -> Response {
     // Check authorization
-    if !is_health_check_authorized(&headers, &query) {
+    if !is_health_check_authorized(
+        &headers,
+        &query,
+        state.config.healthcheck_token(),
+        state.config.healthcheck_host_bypass(),
+    ) {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {

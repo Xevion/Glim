@@ -5,6 +5,7 @@
 
 pub mod cache;
 pub mod colors;
+pub mod config;
 pub mod encode;
 pub mod errors;
 pub mod github;
@@ -16,11 +17,7 @@ pub mod server;
 pub mod cli;
 use crate::errors::Result;
 use std::net::SocketAddr;
-use std::net::{IpAddr, Ipv4Addr};
 use tracing_subscriber::FmtSubscriber;
-
-const DEFAULT_HOST: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-const DEFAULT_PORT: u16 = 8080;
 
 /// A helper method for invoking the address parser, and filling in the missing parts of the address.
 ///
@@ -44,7 +41,10 @@ fn get_addresses(addr: &str, default_port: u16) -> Result<Vec<SocketAddr>> {
             Ok(value) => match value.to_enum() {
                 terrors::E3::A(addr) => Ok(addr),
                 terrors::E3::B(ip) => Ok(SocketAddr::from((ip, default_port))),
-                terrors::E3::C(port) => Ok(SocketAddr::from((DEFAULT_HOST, port))),
+                terrors::E3::C(port) => Ok(SocketAddr::from((
+                    config::Config::default().default_host(),
+                    port,
+                ))),
             },
             Err(value) => match value.to_enum() {
                 terrors::E3::A(e) => Err(e.into()),
@@ -56,6 +56,7 @@ fn get_addresses(addr: &str, default_port: u16) -> Result<Vec<SocketAddr>> {
 
     addresses.into_iter().collect()
 }
+
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(feature = "cli")]
@@ -72,24 +73,20 @@ async fn main() -> Result<()> {
             .expect("setting default subscriber failed");
 
         if let Some(addr_argument) = cli.server.as_ref() {
-            // If no address is provided, use the default address
-            let default_port = cli.port.unwrap_or_else(|| {
-                if let Ok(port_str) = std::env::var("PORT") {
-                    port_str.parse::<u16>().unwrap_or_else(|_| {
-                        tracing::error!("Invalid PORT environment variable: {}", port_str);
-                        std::process::exit(1);
-                    })
-                } else {
-                    DEFAULT_PORT
-                }
-            });
+            // Load configuration with CLI overrides
+            let cli_overrides = config::CliOverrides::from_cli_args(cli.token, cli.port);
+            let config = config::Config::load(Some(cli_overrides));
+
             let addrs = addr_argument.as_ref().map_or(
-                Ok(vec![SocketAddr::new(DEFAULT_HOST, default_port)]),
+                Ok(vec![SocketAddr::new(
+                    config.default_host(),
+                    config.default_port(),
+                )]),
                 // If an argument is provided, use it
-                |addr| get_addresses(addr, default_port),
+                |addr| get_addresses(addr, config.default_port()),
             )?;
 
-            if let Some(Err(e)) = server::start_server(addrs).await {
+            if let Some(Err(e)) = server::start_server(addrs, config).await {
                 tracing::error!("Server error: {}", e);
                 return Err(crate::errors::GlimError::General(e));
             }
@@ -114,18 +111,13 @@ async fn main() -> Result<()> {
         let args: Vec<String> = std::env::args().collect();
         let server_addr = args.get(1).cloned();
 
-        // Get default port from environment variable or use constant
-        let default_port = if let Ok(port_str) = std::env::var("PORT") {
-            port_str.parse::<u16>().unwrap_or_else(|_| {
-                tracing::error!("Invalid PORT environment variable: {}", port_str);
-                std::process::exit(1);
-            })
-        } else {
-            DEFAULT_PORT
-        };
+        // Load configuration
+        let config = config::Config::load(None);
 
         if let Some(addr) = server_addr {
-            if let Some(Err(e)) = server::start_server(get_addresses(&addr, default_port)?).await {
+            if let Some(Err(e)) =
+                server::start_server(get_addresses(&addr, config.default_port())?, config).await
+            {
                 tracing::error!("Server error: {}", e);
                 return Err(crate::errors::GlimError::General(e));
             }

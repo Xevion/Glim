@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://gh.xevion.dev/Xevion/Glim.png?s=1.2" alt="Glim">
+  <img src="https://gh.xevion.dev/Xevion/Glim.png?s=1.2" alt="Glim repository card">
 </div>
 
 # Glim
@@ -16,21 +16,32 @@ The name comes from an Old English word meaning a small gleam of light, represen
 ## Usage
 
 ```bash
-Usage: glim [OPTIONS] <REPOSITORY>
+Usage: glim [OPTIONS] [REPOSITORY]
 
 Arguments:
-  <REPOSITORY>  The repository to generate a card for, in the format `owner/repo`
+  [REPOSITORY]  The repository to generate a card for, in the format `owner/repo`
 
 Options:
-  -o, --output <OUTPUT>  The output path for the generated card
-  -t, --token <TOKEN>    GitHub token to use for API requests
-  -h, --help             Print help
-  -V, --version          Print version
+  -o, --output <OUTPUT>                         The output path for the generated card
+  -t, --token <TOKEN>                           GitHub token to use for API requests
+  -s, --server [<HOST:PORT[,HOST:PORT[,...]]>]  Start the HTTP server
+  -L, --log-level <LEVEL>                       Set the logging level [default: DEBUG]
+  -h, --help                                    Print help
+  -V, --version                                 Print version
 ```
 
 ### Environment Variables
 
 - `GITHUB_TOKEN`: To avoid rate-limiting, you can provide a GitHub personal access token through this environment variable.
+
+When creating a GitHub personal access token for Glim, **do not add any scopes**.
+
+- A fine-grained personal access token with **no scopes** against **public repositories** is ideal.
+- Given that private repositories generally are not starred or forked often, there is no reason to use a token with `repo` scope, and no reason to provide access to private repositories.
+
+For most users, **no token is required** as Glim works perfectly with public repositories using anonymous API access.
+
+If you'd like to use a token anyways, you can create one in the **Settings** > **Developer settings** > **Personal access tokens** > [Fine-grained tokens](https://github.com/settings/personal-access-tokens) page. I strongly recommend that you do not click on any scopes, and do not change the default Repository access from 'Public repositories'.
 
 ## Building
 

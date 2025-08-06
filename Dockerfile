@@ -1,3 +1,5 @@
+# Note: This Dockerfile is used for this project's Railway deployment and image testing. It may not be suitable for your use case.
+
 # Build Stage
 ARG RUST_VERSION=1.86.0
 FROM rust:${RUST_VERSION}-bookworm AS builder
@@ -13,8 +15,7 @@ RUN USER=root cargo new --bin glim
 WORKDIR /usr/src/glim
 
 # Copy dependency files for better layer caching
-COPY ./Cargo.toml ./Cargo.lock* ./build.rs ./
-COPY ./card.svg ./
+COPY ./Cargo.toml ./Cargo.lock* ./build.rs ./card.svg ./
 
 # Build empty app with downloaded dependencies to produce a stable image layer for next build
 # Note: Docker image builds server-only version (no CLI dependencies)
@@ -44,7 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-ENV TZ=Etc/UTC
+ARG TZ=Etc/UTC
+ENV TZ=${TZ}
 
 # Create user with specific UID/GID
 RUN addgroup --gid $GID $APP_USER \
@@ -67,13 +69,8 @@ ARG PORT=8000
 ENV PORT=${PORT}
 EXPOSE ${PORT}
 
-# Build-time arg for HOST, default to 0.0.0.0 (ipv4 all interfaces)
-ARG HOST=0.0.0.0
-# Runtime environment var for HOST, default to build-time arg
-ENV HOST=${HOST}
-
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
 
-CMD ["sh", "-c", "exec ./glim ${HOST}:${PORT}"]
+CMD ["sh", "-c", "exec ./glim 0.0.0.0:${PORT},[::]:${PORT}"]

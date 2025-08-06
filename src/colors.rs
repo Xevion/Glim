@@ -5,6 +5,11 @@
 
 include!(concat!(env!("OUT_DIR"), "/colors.rs"));
 
+/// Returns the number of languages in the color map.
+pub fn count_languages() -> usize {
+    COLORS.len()
+}
+
 /// Gets the color for a programming language.
 ///
 /// # Arguments

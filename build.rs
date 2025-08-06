@@ -19,6 +19,7 @@ const LANGUAGES_URL: &str =
     "https://raw.githubusercontent.com/github-linguist/linguist/master/lib/linguist/languages.yml";
 const CACHE_FILE: &str = "languages.yml";
 const ETAG_FILE: &str = "languages.etag";
+const MIN_LANGUAGES: usize = 100;
 
 /// Lazy-evaluated verbose flag
 static VERBOSE: OnceLock<bool> = OnceLock::new();
@@ -119,20 +120,53 @@ fn generate_colors_rs(out_path: &Path, languages_yml: &str) {
 
     // Parse YAML using Saphyr
     let docs = Yaml::load_from_str(languages_yml).unwrap();
+    verbose_println(&format!("Loaded {} YAML documents", docs.len()));
+
     let yaml_root = &docs[0]; // Get the first (and only) YAML document
+    verbose_println(&format!(
+        "YAML root type: {:?}",
+        if yaml_root.as_mapping().is_some() {
+            "Mapping"
+        } else if yaml_root.as_sequence().is_some() {
+            "Sequence"
+        } else {
+            "Other"
+        }
+    ));
 
     let mut color_map = Map::new();
     let mut color_strings: Vec<(String, String)> = Vec::new();
+    let mut total_languages = 0;
 
     // Extract color mappings from the YAML structure
     if let Some(mapping) = yaml_root.as_mapping() {
+        verbose_println(&format!("Found mapping with {} entries", mapping.len()));
         for (name_yaml, lang_yaml) in mapping {
+            total_languages += 1;
             if let Some(name) = name_yaml.as_str() {
                 if let Some(color) = extract_color_from_language(lang_yaml) {
+                    if total_languages <= 5 {
+                        verbose_println(&format!("Found language: {} -> {}", name, color));
+                    }
                     color_strings.push((name.to_string(), color));
                 }
             }
         }
+    } else {
+        verbose_println("ERROR: YAML root is not a mapping!");
+    }
+
+    // Validate minimum language count
+    let language_count = color_strings.len();
+    verbose_println(&format!("Parsed {} languages with colors", language_count));
+
+    if language_count < MIN_LANGUAGES {
+        panic!(
+            "ERROR: Only {} languages with colors were parsed from the YAML file. Expected at least {}. \
+            This indicates the YAML parsing failed or the file format has changed. \
+            Check the languages.yml file in your OUT_DIR for issues.",
+            language_count, MIN_LANGUAGES
+        );
     }
 
     // Build the PHF map from the collected colors

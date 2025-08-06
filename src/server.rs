@@ -600,6 +600,7 @@ impl ImageGenerationTiming {
 /// let result = parse_address_components("invalid");
 /// // Returns Err(...)
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn parse_address_components(
     input: &str,
 ) -> Result<OneOf<(SocketAddr, IpAddr, u16)>, OneOf<(anyhow::Error, AddrParseError, ParseIntError)>>
@@ -628,8 +629,8 @@ pub fn parse_address_components(
         Some((host, port)) => {
             // Check the length of each component
             (
-                if host.len() > 0 { Some(host) } else { None },
-                if port.len() > 0 { Some(port) } else { None },
+                if !host.is_empty() { Some(host) } else { None },
+                if !port.is_empty() { Some(port) } else { None },
             )
         }
         None => {
@@ -647,16 +648,16 @@ pub fn parse_address_components(
     // Now just parse the components individually or together, and return the appropriate type
     match (host, port) {
         (Some(host), Some(port)) => {
-            let host = host.parse::<Ipv4Addr>().map_err(|e| OneOf::new(e))?;
-            let port = port.parse::<u16>().map_err(|e| OneOf::new(e))?;
+            let host = host.parse::<Ipv4Addr>().map_err(OneOf::new)?;
+            let port = port.parse::<u16>().map_err(OneOf::new)?;
             Ok(OneOf::new(SocketAddr::from((host, port))))
         }
         (Some(host), None) => {
-            let host = host.parse::<Ipv4Addr>().map_err(|e| OneOf::new(e))?;
+            let host = host.parse::<Ipv4Addr>().map_err(OneOf::new)?;
             Ok(OneOf::new(IpAddr::V4(host)))
         }
         (None, Some(port)) => {
-            let port = port.parse::<u16>().map_err(|e| OneOf::new(e))?;
+            let port = port.parse::<u16>().map_err(OneOf::new)?;
             Ok(OneOf::new(port))
         }
         (None, None) => Err(OneOf::new(anyhow::Error::msg(format!(

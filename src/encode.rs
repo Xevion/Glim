@@ -10,21 +10,11 @@ use std::time::Duration;
 use tracing::instrument;
 
 /// Timing information for encoding operations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EncodingTiming {
     pub rasterization: Duration,
     pub encoding: Duration,
     pub total: Duration,
-}
-
-impl EncodingTiming {
-    pub fn new() -> Self {
-        Self {
-            rasterization: Duration::ZERO,
-            encoding: Duration::ZERO,
-            total: Duration::ZERO,
-        }
-    }
 }
 
 /// Helper function to rasterize SVG and convert to RgbaImage.

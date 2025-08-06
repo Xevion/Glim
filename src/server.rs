@@ -4,7 +4,7 @@
 
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -14,13 +14,14 @@ use serde::{Deserialize, Serialize};
 use socket2::{Domain, Socket, Type};
 use std::{
     collections::HashSet,
+    env,
     io::Cursor,
     net::{IpAddr, Ipv4Addr},
     num::ParseIntError,
 };
 use std::{
     net::AddrParseError,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use std::{net::SocketAddrV6, path::Path as StdPath};
 use std::{
@@ -38,6 +39,10 @@ use crate::{
     image::{self, ImageFormat},
     ratelimit::{RateLimitConfig, RateLimitResult, RateLimiter},
 };
+use once_cell::sync::Lazy;
+
+/// Lazy-loaded healthcheck token from environment variable
+static HEALTHCHECK_TOKEN: Lazy<Option<String>> = Lazy::new(|| env::var("HEALTHCHECK_TOKEN").ok());
 
 /// Error response structure for JSON error responses
 #[derive(Debug, Serialize)]
@@ -45,6 +50,43 @@ struct ErrorResponse {
     error: String,
     message: String,
     status: u16,
+}
+
+/// Health check response structure
+#[derive(Debug, Serialize)]
+struct HealthResponse {
+    status: String,
+    timestamp: u64,
+    uptime_seconds: u64,
+    version: String,
+    components: ComponentStatus,
+}
+
+/// Component status for health checks
+#[derive(Debug, Serialize)]
+struct ComponentStatus {
+    rate_limiter: RateLimiterHealth,
+    github_api: GitHubApiHealth,
+}
+
+/// Rate limiter health status
+#[derive(Debug, Serialize)]
+struct RateLimiterHealth {
+    status: String,
+    global_tokens_remaining: u32,
+    global_tokens_max: u32,
+    active_ip_count: u32,
+    utilization_percent: f32,
+}
+
+/// GitHub API health status
+#[derive(Debug, Serialize)]
+struct GitHubApiHealth {
+    status: String,
+    token_configured: bool,
+    circuit_breaker_open: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
 }
 
 /// SVG input data for repository cards
@@ -84,10 +126,11 @@ pub struct ImageQuery {
     pub s: Option<String>,
 }
 
-/// Application state containing the rate limiter
+/// Application state containing the rate limiter and startup time
 #[derive(Clone, Debug)]
 struct AppState {
     rate_limiter: RateLimiter,
+    startup_time: Instant,
 }
 
 /// Middleware to add Server header to all responses
@@ -169,7 +212,10 @@ pub async fn start_server(mut addresses: Vec<SocketAddr>) -> Option<Result<(), a
     }
 
     let rate_limiter = RateLimiter::new(RateLimitConfig::default());
-    let app_state = AppState { rate_limiter };
+    let app_state = AppState {
+        rate_limiter,
+        startup_time: Instant::now(),
+    };
 
     let app = Router::new()
         .route("/", get(index_handler))
@@ -316,12 +362,164 @@ async fn status_handler(State(state): State<AppState>) -> Response {
         .into_response()
 }
 
-/// Handles health check route - returns simple OK response.
+/// Check if the request is authorized for health check access.
+///
+/// Authorization logic:
+/// - In debug mode: allow access if no token configured, validate if configured
+/// - In release mode: require valid token if HEALTHCHECK_TOKEN is configured
+/// - Token can be provided via Authorization Bearer header or 'token' query parameter
+fn is_health_check_authorized(headers: &HeaderMap, query: &HealthQuery) -> bool {
+    let expected_token = match HEALTHCHECK_TOKEN.as_ref() {
+        Some(token) => token,
+        None => {
+            // No token configured
+            if cfg!(debug_assertions) {
+                return true; // Allow access in debug mode
+            } else {
+                return false; // Deny access in release mode
+            }
+        }
+    };
+
+    // Token is configured, validate it
+    // Check Authorization Bearer header first
+    if let Some(auth_header) = headers.get("authorization") {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                return token == expected_token;
+            }
+        }
+    }
+
+    // Fallback to query parameter
+    if let Some(query_token) = &query.token {
+        return query_token == expected_token;
+    }
+
+    false
+}
+
+/// Query parameters for health check endpoint
+#[derive(Debug, Deserialize)]
+struct HealthQuery {
+    token: Option<String>,
+}
+
+/// Handles health check route - returns comprehensive health status.
 ///
 /// Endpoint: GET /health
-/// Returns: 200 OK with "OK" text
-async fn health_handler() -> Response {
-    ([(axum::http::header::CONTENT_TYPE, "text/plain")], "OK").into_response()
+/// Returns: JSON with detailed system health information including:
+/// - Service status and uptime
+/// - Rate limiter status
+/// - GitHub API connectivity
+/// - Component health checks
+///
+/// Authentication:
+/// - Debug mode: always accessible
+/// - Release mode: requires HEALTHCHECK_TOKEN via Authorization Bearer or token query param
+#[instrument]
+async fn health_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HealthQuery>,
+) -> Response {
+    // Check authorization
+    if !is_health_check_authorized(&headers, &query) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Unauthorized".to_string(),
+                message: "Valid authentication token required".to_string(),
+                status: 401,
+            }),
+        )
+            .into_response();
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let uptime = state.startup_time.elapsed().as_secs();
+
+    // Check rate limiter health
+    let rate_limit_status = state.rate_limiter.status().await;
+    let utilization = if rate_limit_status.global_tokens_max > 0 {
+        100.0
+            - (rate_limit_status.global_tokens_remaining as f32
+                / rate_limit_status.global_tokens_max as f32
+                * 100.0)
+    } else {
+        0.0
+    };
+
+    let rate_limiter_health = RateLimiterHealth {
+        status: if rate_limit_status.global_tokens_remaining > 0 {
+            "healthy"
+        } else {
+            "degraded"
+        }
+        .to_string(),
+        global_tokens_remaining: rate_limit_status.global_tokens_remaining,
+        global_tokens_max: rate_limit_status.global_tokens_max,
+        active_ip_count: rate_limit_status.active_ip_count,
+        utilization_percent: utilization,
+    };
+
+    // Check GitHub API health
+    let github_client = &github::GITHUB_CLIENT;
+    let token_configured = github_client.has_token();
+    let circuit_breaker_open = github_client.disabled();
+
+    // Perform a lightweight GitHub API check if token is available and circuit breaker is closed
+    let (github_status, last_error) = if !token_configured {
+        ("warning", Some("No GitHub token configured".to_string()))
+    } else if circuit_breaker_open {
+        ("degraded", Some("Circuit breaker is open".to_string()))
+    } else {
+        // Try a quick validation call
+        match tokio::time::timeout(Duration::from_secs(2), github_client.validate_token()).await {
+            Ok(Ok(_)) => ("healthy", None),
+            Ok(Err(e)) => ("degraded", Some(e.to_string())),
+            Err(_) => ("degraded", Some("Token validation timeout".to_string())),
+        }
+    };
+
+    let github_health = GitHubApiHealth {
+        status: github_status.to_string(),
+        token_configured,
+        circuit_breaker_open,
+        last_error,
+    };
+
+    // Determine overall status
+    let overall_status = if github_status == "healthy" && rate_limiter_health.status == "healthy" {
+        "healthy"
+    } else if github_status == "degraded" || rate_limiter_health.status == "degraded" {
+        "degraded"
+    } else {
+        "warning"
+    };
+
+    let health_response = HealthResponse {
+        status: overall_status.to_string(),
+        timestamp: now,
+        uptime_seconds: uptime,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        components: ComponentStatus {
+            rate_limiter: rate_limiter_health,
+            github_api: github_health,
+        },
+    };
+
+    let status_code = match overall_status {
+        "healthy" => StatusCode::OK,
+        "warning" => StatusCode::OK,
+        "degraded" => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    (status_code, Json(health_response)).into_response()
 }
 
 /// Handles HTTP requests for repository cards with rate limiting.

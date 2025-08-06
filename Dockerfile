@@ -73,4 +73,6 @@ EXPOSE ${PORT}
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
 
-CMD ["sh", "-c", "exec ./glim 0.0.0.0:${PORT},[::]:${PORT}"]
+ENV HOSTS=0.0.0.0:${PORT},[::]:${PORT}
+
+CMD ["sh", "-c", "exec ./glim ${HOSTS}"]
